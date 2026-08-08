@@ -28,6 +28,7 @@ $outputPath = Join-Path $OutputDirectory "Media-Nexus-ARM.exe"
     /platform:x64 `
     /optimize+ `
     "/out:$outputPath" `
+    "/win32icon:$PSScriptRoot\src\Media-Nexus-ARM.ico" `
     "/win32manifest:$PSScriptRoot\src\app.manifest" `
     /reference:System.dll `
     /reference:System.Core.dll `
