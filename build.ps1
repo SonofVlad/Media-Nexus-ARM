@@ -1,0 +1,43 @@
+[CmdletBinding()]
+param(
+    [string]$OutputDirectory
+)
+
+$ErrorActionPreference = "Stop"
+
+if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
+    $OutputDirectory = Join-Path $PSScriptRoot "dist"
+}
+
+$compilerCandidates = @(
+    "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe",
+    "$env:WINDIR\Microsoft.NET\Framework\v4.0.30319\csc.exe"
+)
+
+$compiler = $compilerCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+if (-not $compiler) {
+    throw "The Windows .NET Framework C# compiler was not found."
+}
+
+New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
+$outputPath = Join-Path $OutputDirectory "Media-Nexus-ARM.exe"
+
+& $compiler `
+    /nologo `
+    /target:winexe `
+    /platform:x64 `
+    /optimize+ `
+    "/out:$outputPath" `
+    "/win32manifest:$PSScriptRoot\src\app.manifest" `
+    /reference:System.dll `
+    /reference:System.Core.dll `
+    /reference:System.Drawing.dll `
+    /reference:System.Windows.Forms.dll `
+    /reference:System.Management.dll `
+    "$PSScriptRoot\src\DiscRipper.cs"
+
+if ($LASTEXITCODE -ne 0) {
+    throw "Compilation failed with exit code $LASTEXITCODE."
+}
+
+Write-Host "Built $outputPath"
