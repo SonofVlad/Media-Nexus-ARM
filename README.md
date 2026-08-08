@@ -1,5 +1,9 @@
 # Media Nexus ARM
 
+<p align="center">
+  <img src="assets/Media-Nexus-ARM.png" alt="Media Nexus ARM logo" width="256">
+</p>
+
 Media Nexus ARM is a Windows automatic ripping machine for processing movies, TV series, music CDs, and audiobooks across multiple optical drives. Video discs are handled by MakeMKV, while audio CDs can be imported through iTunes.
 
 ## Features
@@ -14,6 +18,7 @@ Media Nexus ARM is a Windows automatic ripping machine for processing movies, TV
 - Automatically ejects discs after success or failure
 - Uses distinct Windows sounds for successful and failed jobs
 - Retains MakeMKV logs for failed video jobs
+- Includes an embedded multi-resolution Windows application icon
 
 ## Requirements
 

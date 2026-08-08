@@ -62,6 +62,7 @@ namespace DiscRipper
             outputRoot = selectedOutputRoot;
             makeMkv = AppSettings.FindMakeMkv();
             Text = "Media Nexus ARM";
+            this.Icon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);
             Font = new Font("Segoe UI", 9F);
             StartPosition = FormStartPosition.CenterScreen;
             MinimumSize = new Size(900, 470);
