@@ -11,7 +11,7 @@ Media Nexus ARM is a Windows automatic ripping machine for processing movies, TV
 - Detects connected optical drives and remembers the drives selected by the user
 - Runs independent MakeMKV jobs across multiple drives
 - Provides Movie, TV Series, Music, and Book modes
-- Displays per-drive status, a master MakeMKV progress bar, and percentage
+- Displays per-drive status and a master MakeMKV progress bar
 - Supports configurable window and column sizes
 - Supports local, external, mapped, and UNC network output folders
 - Separates output into Movies, TV Series, Music, Audiobooks, and Logs
@@ -81,7 +81,7 @@ These are heuristics. Optical discs do not consistently identify movies, episode
 
 ## Progress reporting
 
-MakeMKV robot-mode `PRGV:current,total,max` messages drive one master progress bar and a percentage in each drive's Status column. For TV discs copied title-by-title, progress is combined into a whole-disc percentage.
+MakeMKV robot-mode `PRGV:current,total,max` messages drive one master progress bar in each drive's Status column. For TV discs copied title-by-title, progress is combined into whole-disc progress.
 
 ## Settings and privacy
 

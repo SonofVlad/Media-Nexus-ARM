@@ -294,7 +294,7 @@ namespace DiscRipper
                     Ui(() =>
                     {
                         if (ok) SetProgress(row, 100);
-                        SetStatus(row, ok ? "Complete — ejected (100%)" : "Failed — ejected", ok ? Color.DarkGreen : Color.DarkRed);
+                        SetStatus(row, ok ? "Complete — ejected" : "Failed — ejected", ok ? Color.DarkGreen : Color.DarkRed);
                         row.Busy = false;
                         row.TypeBox.Enabled = true;
                     });
@@ -328,14 +328,14 @@ namespace DiscRipper
             {
                 token.ThrowIfCancellationRequested();
                 string titleText = title < 0 ? "all titles" : "title " + title;
-                Ui(() => { SetStatus(row, "Ripping " + titleText + "... 0%", Color.DarkBlue); SetProgress(row, completedTitles * 100 / titleIds.Count); });
+                Ui(() => { SetStatus(row, "Ripping " + titleText + "...", Color.DarkBlue); SetProgress(row, completedTitles * 100 / titleIds.Count); });
                 string target = title < 0 ? "all" : title.ToString();
                 int filesBefore = Directory.GetFiles(outDir, "*.mkv").Length;
                 int titlesDoneAtStart = completedTitles;
                 var result = await RunProcess(makeMkv, "-r --noscan --minlength=" + MinLengthSeconds + " mkv disc:" + discIndex + " " + target + " \"" + outDir + "\"", token, percent =>
                 {
                     int wholeDiscPercent = Math.Min(99, ((titlesDoneAtStart * 100) + percent) / titleIds.Count);
-                    Ui(() => { SetStatus(row, "Ripping " + titleText + "... " + wholeDiscPercent + "%", Color.DarkBlue); SetProgress(row, wholeDiscPercent); });
+                    Ui(() => SetProgress(row, wholeDiscPercent));
                 });
                 File.AppendAllText(logPath, result.Output, Encoding.UTF8);
                 bool copied = result.Output.IndexOf("Copy complete", StringComparison.OrdinalIgnoreCase) >= 0 ||
