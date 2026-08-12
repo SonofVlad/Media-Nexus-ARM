@@ -36,6 +36,7 @@ namespace DiscRipper
         public Label StatusLabel;
         public ProgressBar ProgressBar;
         public Button EjectButton;
+        public Button StopButton;
         public bool Present;
         public bool Busy;
         public bool AwaitingChoice;
@@ -47,6 +48,7 @@ namespace DiscRipper
         public readonly object ProgressSync = new object();
         public DateTime FirstSeen;
         public CancellationTokenSource Cancellation;
+        public bool StopRequested;
     }
 
     internal sealed class MainForm : Form
@@ -92,21 +94,12 @@ namespace DiscRipper
             AddAllButton(toolbar, "Book", MediaKind.Book);
             AddAllButton(toolbar, "Music", MediaKind.Music);
             AddAllButton(toolbar, "Clear", MediaKind.Choose);
-            var configureButton = new Button { Text = "Config Drives", AutoSize = true, Margin = new Padding(20, 3, 3, 3) };
-            configureButton.Click += ConfigureDrives;
-            toolbar.Controls.Add(configureButton);
-            var layoutButton = new Button { Text = "Edit Layout", AutoSize = true };
-            layoutButton.Click += ConfigureLayout;
-            toolbar.Controls.Add(layoutButton);
-            var outputButton = new Button { Text = "Config Folder", AutoSize = true };
-            outputButton.Click += ConfigureOutputFolder;
-            toolbar.Controls.Add(outputButton);
+            var settingsButton = new Button { Text = "Settings", AutoSize = true, Margin = new Padding(20, 3, 3, 3) };
+            settingsButton.Click += OpenSettings;
+            toolbar.Controls.Add(settingsButton);
             var openButton = new Button { Text = "Open Output", AutoSize = true };
             openButton.Click += (s, e) => OpenFolder(outputRoot);
             toolbar.Controls.Add(openButton);
-            var engineButton = new Button { Text = "Audio Engine", AutoSize = true };
-            engineButton.Click += ConfigureAudioEngine;
-            toolbar.Controls.Add(engineButton);
             root.Controls.Add(toolbar, 0, 0);
 
             var gridHost = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
@@ -121,19 +114,37 @@ namespace DiscRipper
 
             footer.AutoSize = true;
             footer.Padding = new Padding(0, 8, 0, 0);
-            footer.Text = "Select a media type for each inserted disc. No rip starts while the type is None.";
+            footer.Text = "Select a media type for each inserted disc. No rip starts while Media Type is selected.";
             root.Controls.Add(footer, 0, 2);
 
             pollTimer.Interval = 3000;
             pollTimer.Tick += PollTimerOnTick;
             Shown += (s, e) => { pollTimer.Start(); PollAll(); };
+            ThemeSettings.Apply(this);
+        }
+
+        private void OpenSettings(object sender, EventArgs e)
+        {
+            using (var dialog = new SettingsForm(ConfigureDrives, ConfigureOutputFolder, ConfigureLayout, ConfigureAudioEngine, ConfigureTheme))
+                dialog.ShowDialog(this);
+        }
+
+        private void ConfigureTheme(object sender, EventArgs e)
+        {
+            using (var dialog = new ThemeSettingsForm(ThemeSettings.IsDark()))
+            {
+                if (dialog.ShowDialog(DialogOwner(sender)) != DialogResult.OK) return;
+                ThemeSettings.Save(dialog.DarkMode);
+                ThemeSettings.Apply(this);
+                foreach (Form open in Application.OpenForms) ThemeSettings.Apply(open);
+            }
         }
 
         private void ConfigureLayout(object sender, EventArgs e)
         {
             using (var dialog = new LayoutSettingsForm(layoutSettings, Size))
             {
-                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                if (dialog.ShowDialog(DialogOwner(sender)) != DialogResult.OK) return;
                 layoutSettings = dialog.Result;
                 layoutSettings.Save(); ApplyLayoutSettings();
             }
@@ -148,7 +159,7 @@ namespace DiscRipper
             }
             using (var dialog = new OutputFolderForm(outputRoot))
             {
-                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                if (dialog.ShowDialog(DialogOwner(sender)) != DialogResult.OK) return;
                 outputRoot = dialog.SelectedPath; AppSettings.SaveOutputRoot(outputRoot);
                 footer.Text = "Output: " + outputRoot;
             }
@@ -181,12 +192,12 @@ namespace DiscRipper
             driveGrid.Controls.Clear(); driveGrid.RowStyles.Clear(); driveGrid.RowCount = 1; rows.Clear();
             driveGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, GridRowHeight));
             AddHeader(driveGrid, 0, "Drive"); AddHeader(driveGrid, 1, "Device"); AddHeader(driveGrid, 2, "Disc");
-            AddHeader(driveGrid, 3, "Media type"); AddHeader(driveGrid, 4, "Status"); AddHeader(driveGrid, 5, "Action");
+            AddHeader(driveGrid, 3, "Media Type"); AddHeader(driveGrid, 4, "Status"); AddHeader(driveGrid, 5, "Action");
             foreach (var drive in selectedDrives.OrderBy(d => d.Letter)) AddDriveRow(driveGrid, drive.Letter, drive.Name);
             UpdateGridBounds();
             driveGrid.ResumeLayout();
             footer.Text = (selectedDrives.Count == 0 ? "No selected drives are currently connected. Use Configure drives." :
-                "Select a media type for each inserted disc. No rip starts while the type is None.") + "   Output: " + outputRoot;
+                "Select a media type for each inserted disc. No rip starts while Media Type is selected.") + "   Output: " + outputRoot;
         }
 
         private void ConfigureDrives(object sender, EventArgs e)
@@ -200,7 +211,7 @@ namespace DiscRipper
             var selectedIds = DriveSettings.LoadSelectedIds();
             using (var dialog = new DriveSelectionForm(detected, selectedIds))
             {
-                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                if (dialog.ShowDialog(DialogOwner(sender)) != DialogResult.OK) return;
                 DriveSettings.SaveSelectedIds(dialog.SelectedDeviceIds);
                 RebuildDriveGrid(detected.Where(d => dialog.SelectedDeviceIds.Contains(d.DeviceId, StringComparer.OrdinalIgnoreCase)).ToList());
                 PollAll();
@@ -231,15 +242,18 @@ namespace DiscRipper
             var deviceLabel = new Label { Text = device, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true, Padding = new Padding(5, 0, 0, 0) };
             var discLabel = new Label { Text = "Empty", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true, Padding = new Padding(5, 0, 0, 0) };
             var type = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, Margin = new Padding(5, 9, 5, 5) };
-            type.Items.AddRange(new object[] { "None", "Movie", "TV Series", "Book", "Music" });
+            type.Items.AddRange(new object[] { "Media Type", "Book", "Movie", "Music", "TV Series" });
             type.SelectedIndex = 0;
             var status = new Label { Text = "Waiting for disc", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true, Padding = new Padding(5, 0, 0, 0) };
             var progress = new ProgressBar { Dock = DockStyle.Fill, Minimum = 0, Maximum = 100, Value = 0, Style = ProgressBarStyle.Continuous, Margin = new Padding(5, 0, 5, 4) };
             var statusPanel = new TableLayoutPanel { Dock = DockStyle.Fill, BackColor = Color.Transparent, ColumnCount = 1, RowCount = 2, Margin = Padding.Empty, Padding = Padding.Empty };
             statusPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 62)); statusPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 38));
             statusPanel.Controls.Add(status, 0, 0); statusPanel.Controls.Add(progress, 0, 1);
-            var eject = new Button { Text = "Eject", Dock = DockStyle.Fill, Margin = new Padding(5, 8, 5, 7) };
-            var item = new DriveRow { Letter = letter, Device = device, DiscLabel = discLabel, TypeBox = type, StatusLabel = status, ProgressBar = progress, EjectButton = eject };
+            var actionPanel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = Padding.Empty, Padding = new Padding(3, 6, 3, 5) };
+            actionPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50)); actionPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+            var stop = new Button { Text = "Stop", Dock = DockStyle.Fill, Margin = new Padding(2), Enabled = false };
+            var eject = new Button { Text = "Eject", Dock = DockStyle.Fill, Margin = new Padding(2) };
+            var item = new DriveRow { Letter = letter, Device = device, DiscLabel = discLabel, TypeBox = type, StatusLabel = status, ProgressBar = progress, EjectButton = eject, StopButton = stop };
             type.SelectedIndexChanged += (s, e) =>
             {
                 if (item.SuppressTypeChange || item.Busy) return;
@@ -247,10 +261,21 @@ namespace DiscRipper
                 item.ManualTypeSelected = SelectedKind(item) != MediaKind.Choose;
                 PollDrive(item);
             };
+            stop.Click += (s, e) => StopRip(item);
             eject.Click += (s, e) => Eject(item.Letter);
             rows[letter] = item;
             grid.Controls.Add(driveLabel, 0, rowIndex); grid.Controls.Add(deviceLabel, 1, rowIndex); grid.Controls.Add(discLabel, 2, rowIndex);
-            grid.Controls.Add(type, 3, rowIndex); grid.Controls.Add(statusPanel, 4, rowIndex); grid.Controls.Add(eject, 5, rowIndex);
+            actionPanel.Controls.Add(stop, 0, 0); actionPanel.Controls.Add(eject, 1, 0);
+            grid.Controls.Add(type, 3, rowIndex); grid.Controls.Add(statusPanel, 4, rowIndex); grid.Controls.Add(actionPanel, 5, rowIndex);
+        }
+
+        private void StopRip(DriveRow row)
+        {
+            if (!row.Busy || row.Cancellation == null) return;
+            row.StopRequested = true;
+            row.StopButton.Enabled = false;
+            SetStatus(row, "Stopping...", Color.DarkOrange);
+            row.Cancellation.Cancel();
         }
 
         private void PollTimerOnTick(object sender, EventArgs e)
@@ -306,8 +331,10 @@ namespace DiscRipper
             }
 
             row.Busy = true;
+            row.StopRequested = false;
             SetProgress(row, 0);
             row.TypeBox.Enabled = false;
+            row.StopButton.Enabled = true;
             row.Cancellation = new CancellationTokenSource();
             Task.Run(async () =>
             {
@@ -316,17 +343,26 @@ namespace DiscRipper
                 {
                     ok = await AnalyzeAndRip(row, kind, row.Cancellation.Token);
                 }
+                catch (OperationCanceledException) { if (!row.StopRequested) Ui(() => SetStatus(row, "Cancelled", Color.DarkOrange)); }
                 catch (Exception ex) { Ui(() => SetStatus(row, "Failed: " + ex.Message, Color.DarkRed)); }
                 finally
                 {
-                    if (!row.AwaitingChoice) { Eject(row.Letter); PlayCompletionSound(ok); }
+                    bool stopped = row.StopRequested;
+                    if (!row.AwaitingChoice && !stopped) { Eject(row.Letter); PlayCompletionSound(ok); }
                     Ui(() =>
                     {
                         if (row.AwaitingChoice) { row.Busy = false; row.TypeBox.Enabled = true; return; }
+                        if (stopped)
+                        {
+                            SetProgress(row, 0); SetStatus(row, "Stopped - disc remains inserted", Color.DarkOrange);
+                            row.Busy = false; row.TypeBox.Enabled = true; row.StopButton.Enabled = false;
+                            row.ManualTypeSelected = false; SetType(row, MediaKind.Choose); row.StopRequested = false; return;
+                        }
                         if (ok) SetProgress(row, 100);
                         SetStatus(row, ok ? "Complete — ejected" : "Failed — ejected", ok ? Color.DarkGreen : Color.DarkRed);
                         row.Busy = false;
                         row.TypeBox.Enabled = true;
+                        row.StopButton.Enabled = false;
                     });
                 }
             });
@@ -397,7 +433,13 @@ namespace DiscRipper
                 MessageBox.Show(this, "Wait for active rips to finish before installing or updating the audio engine.", "Media Nexus ARM", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
-            using (var dialog = new FreacStatusForm(freac)) dialog.ShowDialog(this);
+            using (var dialog = new FreacStatusForm(freac)) dialog.ShowDialog(DialogOwner(sender));
+        }
+
+        private IWin32Window DialogOwner(object sender)
+        {
+            Control control = sender as Control;
+            return control == null ? (IWin32Window)this : control.FindForm();
         }
 
         private async Task<int> GetMakeMkvDiscIndex(string letter)
@@ -632,7 +674,7 @@ namespace DiscRipper
                 case "Book": return MediaKind.Book; case "Music": return MediaKind.Music; default: return MediaKind.Choose;
             }
         }
-        private static string DisplayName(MediaKind kind) { return kind == MediaKind.TVSeries ? "TV Series" : kind == MediaKind.Choose ? "None" : kind.ToString(); }
+        private static string DisplayName(MediaKind kind) { return kind == MediaKind.TVSeries ? "TV Series" : kind == MediaKind.Choose ? "Media Type" : kind.ToString(); }
         private static void SetType(DriveRow row, MediaKind kind)
         {
             row.SuppressTypeChange = true;
@@ -724,12 +766,97 @@ namespace DiscRipper
         }
     }
 
+    internal sealed class SettingsForm : Form
+    {
+        public SettingsForm(EventHandler configureDrives, EventHandler configureOutput, EventHandler configureLayout, EventHandler configureAudio, EventHandler configureTheme)
+        {
+            Text = "Media Nexus ARM - Settings"; StartPosition = FormStartPosition.CenterParent;
+            Font = new Font("Segoe UI", 9F); FormBorderStyle = FormBorderStyle.FixedDialog;
+            MaximizeBox = false; MinimizeBox = false; ClientSize = new Size(560, 430);
+            var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(18), ColumnCount = 1, RowCount = 7 };
+            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            for (int i = 1; i <= 5; i++) root.RowStyles.Add(new RowStyle(SizeType.Percent, 20));
+            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            root.Controls.Add(new Label { Text = "Settings", Font = new Font("Segoe UI", 15F, FontStyle.Bold), AutoSize = true, Padding = new Padding(0, 0, 0, 10) }, 0, 0);
+            AddSettingButton(root, 1, "Optical Drives", "Choose which connected optical drives Media Nexus ARM manages.", configureDrives);
+            AddSettingButton(root, 2, "Output Folder", "Choose the root folder used for media, staging files, and logs.", configureOutput);
+            AddSettingButton(root, 3, "Window and Columns", "Set the window dimensions and individual column widths.", configureLayout);
+            AddSettingButton(root, 4, "Audio Engine", "View, install, or update the managed fre:ac audio engine.", configureAudio);
+            AddSettingButton(root, 5, "Appearance", "Choose the Light or Dark application theme.", configureTheme);
+            var closeRow = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Padding = new Padding(0, 12, 0, 0) };
+            var close = new Button { Text = "Close", DialogResult = DialogResult.OK, AutoSize = true };
+            closeRow.Controls.Add(close); root.Controls.Add(closeRow, 0, 6); Controls.Add(root); AcceptButton = close; CancelButton = close;
+            ThemeSettings.Apply(this);
+        }
+
+        private static void AddSettingButton(TableLayoutPanel root, int row, string title, string description, EventHandler action)
+        {
+            var panel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new Padding(0, 4, 0, 4) };
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); panel.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            var text = new Label { Text = title + Environment.NewLine + description, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
+            var button = new Button { Text = "Configure", AutoSize = true, Anchor = AnchorStyles.Right };
+            button.Click += action; panel.Controls.Add(text, 0, 0); panel.Controls.Add(button, 1, 0); root.Controls.Add(panel, 0, row);
+        }
+    }
+
+    internal sealed class ThemeSettingsForm : Form
+    {
+        private readonly ComboBox theme = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
+        public bool DarkMode { get { return Convert.ToString(theme.SelectedItem) == "Dark"; } }
+        public ThemeSettingsForm(bool dark)
+        {
+            Text = "Media Nexus ARM - Appearance"; StartPosition = FormStartPosition.CenterParent; Font = new Font("Segoe UI", 9F);
+            FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false; MinimizeBox = false; ClientSize = new Size(420, 160);
+            var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(16), ColumnCount = 2, RowCount = 2 };
+            root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120)); root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            theme.Items.AddRange(new object[] { "Light", "Dark" }); theme.SelectedItem = dark ? "Dark" : "Light";
+            root.Controls.Add(new Label { Text = "Color theme", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, 0, 0); root.Controls.Add(theme, 1, 0);
+            var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Padding = new Padding(0, 14, 0, 0) };
+            var apply = new Button { Text = "Apply", DialogResult = DialogResult.OK, AutoSize = true }; var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true };
+            buttons.Controls.Add(apply); buttons.Controls.Add(cancel); root.Controls.Add(buttons, 0, 1); root.SetColumnSpan(buttons, 2); Controls.Add(root); AcceptButton = apply; CancelButton = cancel;
+            ThemeSettings.Apply(this, dark);
+        }
+    }
+
+    internal static class ThemeSettings
+    {
+        private const string RegistryPath = @"Software\DiscRipper";
+        private const string ValueName = "DarkMode";
+        public static bool IsDark()
+        {
+            try { using (var key = Registry.CurrentUser.OpenSubKey(RegistryPath)) return key != null && Convert.ToInt32(key.GetValue(ValueName, 0)) != 0; }
+            catch { return false; }
+        }
+        public static void Save(bool dark)
+        {
+            using (var key = Registry.CurrentUser.CreateSubKey(RegistryPath)) key.SetValue(ValueName, dark ? 1 : 0, RegistryValueKind.DWord);
+        }
+        public static void Apply(Control root) { Apply(root, IsDark()); }
+        public static void Apply(Control root, bool dark)
+        {
+            Color back = dark ? Color.FromArgb(32, 32, 32) : SystemColors.Control;
+            Color surface = dark ? Color.FromArgb(45, 45, 48) : SystemColors.Window;
+            Color fore = dark ? Color.Gainsboro : SystemColors.ControlText;
+            root.BackColor = root is TextBox || root is ComboBox || root is CheckedListBox || root is DataGridView ? surface : back;
+            root.ForeColor = fore;
+            var grid = root as DataGridView;
+            if (grid != null)
+            {
+                grid.BackgroundColor = surface; grid.GridColor = dark ? Color.FromArgb(80, 80, 80) : SystemColors.ControlDark;
+                grid.DefaultCellStyle.BackColor = surface; grid.DefaultCellStyle.ForeColor = fore;
+                grid.ColumnHeadersDefaultCellStyle.BackColor = dark ? Color.FromArgb(55, 55, 58) : SystemColors.Control;
+                grid.ColumnHeadersDefaultCellStyle.ForeColor = fore; grid.EnableHeadersVisualStyles = !dark;
+            }
+            foreach (Control child in root.Controls) Apply(child, dark);
+        }
+    }
+
     internal sealed class LayoutSettings
     {
         private const string RegistryPath = @"Software\DiscRipper";
         public int WindowWidth = 1060;
         public int WindowHeight = 520;
-        public int[] ColumnWidths = { 60, 280, 185, 145, 300, 75 };
+        public int[] ColumnWidths = { 60, 280, 185, 145, 300, 150 };
 
         public static LayoutSettings Load()
         {
@@ -741,7 +868,7 @@ namespace DiscRipper
                     if (key == null) return settings;
                     settings.WindowWidth = ReadInt(key, "WindowWidth", settings.WindowWidth, 900, 7680);
                     settings.WindowHeight = ReadInt(key, "WindowHeight", settings.WindowHeight, 470, 4320);
-                    for (int i = 0; i < 6; i++) settings.ColumnWidths[i] = ReadInt(key, "ColumnWidth" + i, settings.ColumnWidths[i], 45, 2000);
+                    for (int i = 0; i < 6; i++) settings.ColumnWidths[i] = ReadInt(key, "ColumnWidth" + i, settings.ColumnWidths[i], i == 5 ? 130 : 45, 2000);
                 }
             }
             catch { }
@@ -792,16 +919,16 @@ namespace DiscRipper
             windowHeight.Value = Math.Max(windowHeight.Minimum, Math.Min(windowHeight.Maximum, currentSize.Height));
             grid.Controls.Add(new Label { Text = "Column widths (pixels)", Font = new Font("Segoe UI", 9F, FontStyle.Bold), AutoSize = true, Padding = new Padding(0, 12, 0, 8) }, 0, 3);
             grid.SetColumnSpan(grid.GetControlFromPosition(0, 3), 2);
-            string[] names = { "Drive", "Device", "Disc", "Media type", "Status", "Action" };
+            string[] names = { "Drive", "Device", "Disc", "Media Type", "Status", "Action" };
             for (int i = 0; i < 6; i++)
             {
-                columns[i] = NewNumber(45, 2000); columns[i].Value = current.ColumnWidths[i]; AddSetting(grid, 4 + i, names[i], columns[i]);
+                columns[i] = NewNumber(i == 5 ? 130 : 45, 2000); columns[i].Value = Math.Max(columns[i].Minimum, current.ColumnWidths[i]); AddSetting(grid, 4 + i, names[i], columns[i]);
             }
             var buttons = new FlowLayoutPanel { FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill, AutoSize = true, Padding = new Padding(0, 10, 0, 0) };
             var save = new Button { Text = "Apply", AutoSize = true }; var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true };
             var reset = new Button { Text = "Defaults", AutoSize = true, Margin = new Padding(3, 3, 18, 3) };
             save.Click += SaveClicked; reset.Click += ResetClicked; buttons.Controls.Add(save); buttons.Controls.Add(cancel); buttons.Controls.Add(reset);
-            grid.Controls.Add(buttons, 0, 10); grid.SetColumnSpan(buttons, 2); Controls.Add(grid); AcceptButton = save; CancelButton = cancel;
+            grid.Controls.Add(buttons, 0, 10); grid.SetColumnSpan(buttons, 2); Controls.Add(grid); AcceptButton = save; CancelButton = cancel; ThemeSettings.Apply(this);
         }
 
         private static NumericUpDown NewNumber(decimal minimum, decimal maximum) { return new NumericUpDown { Minimum = minimum, Maximum = maximum, Increment = 10, Dock = DockStyle.Fill, ThousandsSeparator = true }; }
@@ -916,7 +1043,7 @@ namespace DiscRipper
             var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Padding = new Padding(0, 12, 0, 0) };
             var save = new Button { Text = "Save", AutoSize = true }; var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true };
             save.Click += SaveClicked; buttons.Controls.Add(save); buttons.Controls.Add(cancel); root.Controls.Add(buttons, 0, 2);
-            Controls.Add(root); AcceptButton = save; CancelButton = cancel;
+            Controls.Add(root); AcceptButton = save; CancelButton = cancel; ThemeSettings.Apply(this);
         }
         private void BrowseClicked(object sender, EventArgs e)
         {
@@ -963,7 +1090,7 @@ namespace DiscRipper
             var all = new Button { Text = "Select all", AutoSize = true, Margin = new Padding(3, 3, 20, 3) };
             save.Click += SaveClicked; all.Click += (s, e) => { for (int i = 0; i < list.Items.Count; i++) list.SetItemChecked(i, true); };
             buttons.Controls.Add(save); buttons.Controls.Add(cancel); buttons.Controls.Add(all); root.Controls.Add(buttons, 0, 2);
-            Controls.Add(root); AcceptButton = save; CancelButton = cancel;
+            Controls.Add(root); AcceptButton = save; CancelButton = cancel; ThemeSettings.Apply(this);
         }
 
         private void SaveClicked(object sender, EventArgs e)

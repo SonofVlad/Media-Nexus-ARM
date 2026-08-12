@@ -32,7 +32,7 @@ namespace DiscRipper
             var close = new Button { Text = "Close", DialogResult = DialogResult.Cancel, AutoSize = true };
             install.AutoSize = true; install.Click += InstallClicked;
             buttons.Controls.Add(close); buttons.Controls.Add(install); root.Controls.Add(buttons, 0, 4); root.SetColumnSpan(buttons, 2);
-            Controls.Add(root); CancelButton = close; RefreshStatus();
+            Controls.Add(root); CancelButton = close; ThemeSettings.Apply(this); RefreshStatus();
         }
 
         private static void AddRow(TableLayoutPanel panel, int row, string name, Control value)

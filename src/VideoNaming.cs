@@ -48,7 +48,7 @@ namespace DiscRipper
             else { grid.Controls.Add(new Label { Text = "Leave the title blank and choose Keep Original Names to preserve the raw rip folder.", AutoSize = true, ForeColor = Color.DimGray }, 1, 3); buttonRow = 4; }
             var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Padding = new Padding(0, 8, 0, 0) };
             var apply = new Button { Text = "Apply Naming", AutoSize = true }; var skip = new Button { Text = "Keep Original Names", DialogResult = DialogResult.Ignore, AutoSize = true }; var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true };
-            apply.Click += ApplyClicked; buttons.Controls.Add(apply); buttons.Controls.Add(skip); buttons.Controls.Add(cancel); grid.Controls.Add(buttons, 0, buttonRow); grid.SetColumnSpan(buttons, 2); Controls.Add(grid); AcceptButton = apply; CancelButton = cancel;
+            apply.Click += ApplyClicked; buttons.Controls.Add(apply); buttons.Controls.Add(skip); buttons.Controls.Add(cancel); grid.Controls.Add(buttons, 0, buttonRow); grid.SetColumnSpan(buttons, 2); Controls.Add(grid); AcceptButton = apply; CancelButton = cancel; ThemeSettings.Apply(this);
         }
 
         private static void Add(TableLayoutPanel grid, int row, string label, Control input) { grid.Controls.Add(new Label { Text = label, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, 0, row); input.Dock = DockStyle.Fill; grid.Controls.Add(input, 1, row); }

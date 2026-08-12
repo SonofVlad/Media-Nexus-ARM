@@ -20,7 +20,7 @@ namespace DiscRipper
             var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Padding = new Padding(0, 8, 0, 0) };
             var use = new Button { Text = "Use Selected", AutoSize = true }; var pending = new Button { Text = "Rip Without Metadata", AutoSize = true, DialogResult = DialogResult.Ignore }; var cancel = new Button { Text = "Cancel", AutoSize = true, DialogResult = DialogResult.Cancel };
             use.Click += (s, e) => { SelectedRelease = list.SelectedItem as MusicRelease; if (SelectedRelease != null) { DialogResult = DialogResult.OK; Close(); } };
-            buttons.Controls.Add(use); buttons.Controls.Add(pending); buttons.Controls.Add(cancel); root.Controls.Add(buttons, 0, 2); Controls.Add(root); AcceptButton = use; CancelButton = cancel;
+            buttons.Controls.Add(use); buttons.Controls.Add(pending); buttons.Controls.Add(cancel); root.Controls.Add(buttons, 0, 2); Controls.Add(root); AcceptButton = use; CancelButton = cancel; ThemeSettings.Apply(this);
         }
     }
 }

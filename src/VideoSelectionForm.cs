@@ -31,7 +31,23 @@ namespace DiscRipper
             }
             var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Padding = new Padding(0, 8, 0, 0) };
             var rip = new Button { Text = "Rip Selected", AutoSize = true }; var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true };
-            rip.Click += RipClicked; buttons.Controls.Add(rip); buttons.Controls.Add(cancel); root.Controls.Add(buttons, 0, 2); Controls.Add(root); AcceptButton = rip; CancelButton = cancel;
+            bool initiallySelected = grid.Rows.Cast<DataGridViewRow>().Any(r => Convert.ToBoolean(r.Cells[0].Value));
+            bool initiallyAll = grid.Rows.Count > 0 && grid.Rows.Cast<DataGridViewRow>().All(r => Convert.ToBoolean(r.Cells[0].Value));
+            var toggleAll = new Button { Text = (movie ? initiallySelected : initiallyAll) ? "Deselect All" : "Select All", AutoSize = true, Margin = new Padding(3, 3, 20, 3) };
+            toggleAll.Click += (s, e) =>
+            {
+                bool any = grid.Rows.Cast<DataGridViewRow>().Any(r => Convert.ToBoolean(r.Cells[0].Value));
+                bool all = grid.Rows.Count > 0 && grid.Rows.Cast<DataGridViewRow>().All(r => Convert.ToBoolean(r.Cells[0].Value));
+                bool select = movie ? !any : !all;
+                foreach (DataGridViewRow row in grid.Rows) row.Cells[0].Value = false;
+                if (movie && select)
+                {
+                    if (grid.Rows.Count > 0) grid.Rows[0].Cells[0].Value = true;
+                }
+                else if (!movie) foreach (DataGridViewRow row in grid.Rows) row.Cells[0].Value = select;
+                toggleAll.Text = select ? "Deselect All" : "Select All";
+            };
+            rip.Click += RipClicked; buttons.Controls.Add(rip); buttons.Controls.Add(cancel); buttons.Controls.Add(toggleAll); root.Controls.Add(buttons, 0, 2); Controls.Add(root); AcceptButton = rip; CancelButton = cancel; ThemeSettings.Apply(this);
         }
 
         private void ConfigureGrid()
