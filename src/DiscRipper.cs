@@ -120,7 +120,11 @@ namespace DiscRipper
 
             pollTimer.Interval = 2000;
             pollTimer.Tick += PollTimerOnTick;
-            Shown += async (s, e) => { await RefreshMakeMkvMap(); pollTimer.Start(); PollAll(); };
+            Shown += async (s, e) =>
+            {
+                if (!EnsureMakeMkvGuiClosed()) { Close(); return; }
+                await RefreshMakeMkvMap(); pollTimer.Start(); PollAll();
+            };
         }
 
         private void ConfigureLayout(object sender, EventArgs e)
@@ -240,10 +244,10 @@ namespace DiscRipper
             grid.Controls.Add(type, 3, rowIndex); grid.Controls.Add(statusPanel, 4, rowIndex); grid.Controls.Add(eject, 5, rowIndex);
         }
 
-        private async void PollTimerOnTick(object sender, EventArgs e)
+        private void PollTimerOnTick(object sender, EventArgs e)
         {
             pollTimer.Stop();
-            try { await RefreshMakeMkvMap(); PollAll(); }
+            try { PollAll(); }
             finally { if (!closing) pollTimer.Start(); }
         }
 
@@ -366,6 +370,10 @@ namespace DiscRipper
 
         private async Task<int> GetMakeMkvDiscIndex(string letter)
         {
+            Process[] gui = Process.GetProcessesByName("makemkv");
+            bool guiRunning = gui.Length > 0;
+            foreach (Process process in gui) process.Dispose();
+            if (guiRunning) throw new InvalidOperationException("Close the MakeMKV desktop application before Media Nexus starts a rip.");
             int index;
             if (!discIndexes.TryGetValue(letter, out index))
             {
@@ -481,6 +489,7 @@ namespace DiscRipper
             try
             {
                 var result = await RunProcess(makeMkv, "-r --cache=1 info disc:9999", CancellationToken.None);
+                discIndexes.Clear();
                 foreach (string line in result.Output.Split('\n'))
                 {
                     var match = Regex.Match(line, "^DRV:(\\d+),.*?,\\\"([A-Z]):\\\"\\s*$");
@@ -488,6 +497,30 @@ namespace DiscRipper
                 }
             }
             catch { }
+        }
+
+        private bool EnsureMakeMkvGuiClosed()
+        {
+            Process[] gui = Process.GetProcessesByName("makemkv");
+            if (gui.Length == 0) return true;
+            DialogResult answer = MessageBox.Show(this,
+                "The MakeMKV desktop application is running. It can compete with Media Nexus for optical drives and cause Windows to display an Insert disc prompt.\r\n\r\nClose MakeMKV now and let Media Nexus manage the drives?",
+                "Close MakeMKV", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+            if (answer != DialogResult.Yes) return false;
+            foreach (Process process in gui)
+            {
+                try
+                {
+                    if (process.CloseMainWindow()) process.WaitForExit(5000);
+                    if (!process.HasExited) process.Kill();
+                }
+                catch { }
+                finally { process.Dispose(); }
+            }
+            Process[] remaining = Process.GetProcessesByName("makemkv");
+            bool closed = remaining.Length == 0;
+            foreach (Process process in remaining) process.Dispose();
+            return closed;
         }
 
         private sealed class ProcessResult { public int ExitCode; public string Output; }
