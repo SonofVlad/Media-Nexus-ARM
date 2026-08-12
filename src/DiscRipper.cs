@@ -120,11 +120,7 @@ namespace DiscRipper
 
             pollTimer.Interval = 2000;
             pollTimer.Tick += PollTimerOnTick;
-            Shown += async (s, e) =>
-            {
-                if (!EnsureMakeMkvGuiClosed()) { Close(); return; }
-                await RefreshMakeMkvMap(); pollTimer.Start(); PollAll();
-            };
+            Shown += (s, e) => { pollTimer.Start(); PollAll(); };
         }
 
         private void ConfigureLayout(object sender, EventArgs e)
@@ -174,6 +170,7 @@ namespace DiscRipper
 
         private void RebuildDriveGrid(List<OpticalDrive> selectedDrives)
         {
+            discIndexes.Clear();
             driveGrid.SuspendLayout();
             driveGrid.Controls.Clear(); driveGrid.RowStyles.Clear(); driveGrid.RowCount = 1; rows.Clear();
             driveGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, GridRowHeight));
@@ -370,10 +367,6 @@ namespace DiscRipper
 
         private async Task<int> GetMakeMkvDiscIndex(string letter)
         {
-            Process[] gui = Process.GetProcessesByName("makemkv");
-            bool guiRunning = gui.Length > 0;
-            foreach (Process process in gui) process.Dispose();
-            if (guiRunning) throw new InvalidOperationException("Close the MakeMKV desktop application before Media Nexus starts a rip.");
             int index;
             if (!discIndexes.TryGetValue(letter, out index))
             {
@@ -497,30 +490,6 @@ namespace DiscRipper
                 }
             }
             catch { }
-        }
-
-        private bool EnsureMakeMkvGuiClosed()
-        {
-            Process[] gui = Process.GetProcessesByName("makemkv");
-            if (gui.Length == 0) return true;
-            DialogResult answer = MessageBox.Show(this,
-                "The MakeMKV desktop application is running. It can compete with Media Nexus for optical drives and cause Windows to display an Insert disc prompt.\r\n\r\nClose MakeMKV now and let Media Nexus manage the drives?",
-                "Close MakeMKV", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
-            if (answer != DialogResult.Yes) return false;
-            foreach (Process process in gui)
-            {
-                try
-                {
-                    if (process.CloseMainWindow()) process.WaitForExit(5000);
-                    if (!process.HasExited) process.Kill();
-                }
-                catch { }
-                finally { process.Dispose(); }
-            }
-            Process[] remaining = Process.GetProcessesByName("makemkv");
-            bool closed = remaining.Length == 0;
-            foreach (Process process in remaining) process.Dispose();
-            return closed;
         }
 
         private sealed class ProcessResult { public int ExitCode; public string Output; }
