@@ -541,7 +541,24 @@ namespace DiscRipper
         }
         private void Ui(Action action) { if (closing || IsDisposed) return; if (InvokeRequired) BeginInvoke(action); else action(); }
         private static void PlayCompletionSound(bool success) { if (success) SystemSounds.Asterisk.Play(); else SystemSounds.Hand.Play(); }
-        private static string GetVolumeLabel(string letter) { try { return new DriveInfo(letter + @":\").VolumeLabel; } catch { return ""; } }
+        private const uint SemFailCriticalErrors = 0x0001;
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern bool GetVolumeInformation(string rootPath, StringBuilder volumeName, int volumeNameSize, out uint serialNumber, out uint maximumComponentLength, out uint fileSystemFlags, StringBuilder fileSystemName, int fileSystemNameSize);
+        [DllImport("kernel32.dll")]
+        private static extern bool SetThreadErrorMode(uint newMode, out uint oldMode);
+        private static string GetVolumeLabel(string letter)
+        {
+            uint oldMode = 0;
+            bool changed = SetThreadErrorMode(SemFailCriticalErrors, out oldMode);
+            try
+            {
+                var volume = new StringBuilder(261); var fileSystem = new StringBuilder(261);
+                uint serial, maximumComponentLength, flags;
+                return GetVolumeInformation(letter.TrimEnd(':') + @":\", volume, volume.Capacity, out serial, out maximumComponentLength, out flags, fileSystem, fileSystem.Capacity) ? volume.ToString() : "";
+            }
+            catch { return ""; }
+            finally { if (changed) { uint ignored; SetThreadErrorMode(oldMode, out ignored); } }
+        }
         private static string SafeName(string value)
         {
             if (string.IsNullOrWhiteSpace(value)) return "UNKNOWN_DISC";
