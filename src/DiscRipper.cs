@@ -41,6 +41,10 @@ namespace DiscRipper
         public bool AwaitingChoice;
         public bool SuppressTypeChange;
         public bool ManualTypeSelected;
+        public int LastRenderedProgress = -1;
+        public int LastQueuedProgress = -1;
+        public DateTime LastProgressQueued = DateTime.MinValue;
+        public readonly object ProgressSync = new object();
         public DateTime FirstSeen;
         public CancellationTokenSource Cancellation;
     }
@@ -120,7 +124,7 @@ namespace DiscRipper
             footer.Text = "Select a media type for each inserted disc. No rip starts while the type is None.";
             root.Controls.Add(footer, 0, 2);
 
-            pollTimer.Interval = 2000;
+            pollTimer.Interval = 3000;
             pollTimer.Tick += PollTimerOnTick;
             Shown += (s, e) => { pollTimer.Start(); PollAll(); };
         }
@@ -263,6 +267,9 @@ namespace DiscRipper
 
         private void PollDrive(DriveRow row)
         {
+            // Active extraction owns the drive. Polling it from the UI thread adds
+            // contention and can make a multi-drive session visibly unresponsive.
+            if (row.Busy) return;
             bool present = IsMediaPresent(row.Letter);
             if (!present)
             {
@@ -276,10 +283,13 @@ namespace DiscRipper
             }
 
             bool newlySeen = !row.Present;
-            string label = GetVolumeLabel(row.Letter);
-            row.DiscLabel.Text = string.IsNullOrWhiteSpace(label) ? "Audio/unknown disc" : label;
+            if (newlySeen || row.DiscLabel.Text == "Empty")
+            {
+                string label = GetVolumeLabel(row.Letter);
+                row.DiscLabel.Text = string.IsNullOrWhiteSpace(label) ? "Audio/unknown disc" : label;
+            }
             if (newlySeen) { row.Present = true; row.FirstSeen = DateTime.Now; }
-            if (row.Busy || row.AwaitingChoice) return;
+            if (row.AwaitingChoice) return;
             if ((DateTime.Now - row.FirstSeen).TotalSeconds < 4)
             {
                 SetStatus(row, "Disc detected - waiting for drive to settle...", Color.DarkBlue);
@@ -457,7 +467,7 @@ namespace DiscRipper
                 var result = await RunProcess(makeMkv, "-r --noscan --minlength=" + MinLengthSeconds + " mkv disc:" + discIndex + " " + target + " \"" + outDir + "\"", token, percent =>
                 {
                     int wholeDiscPercent = Math.Min(99, ((titlesDoneAtStart * 100) + percent) / titleIds.Count);
-                    Ui(() => SetProgress(row, wholeDiscPercent));
+                    QueueProgress(row, wholeDiscPercent);
                 });
                 File.AppendAllText(logPath, result.Output, Encoding.UTF8);
                 bool copied = result.Output.IndexOf("Copy complete", StringComparison.OrdinalIgnoreCase) >= 0 ||
@@ -491,12 +501,12 @@ namespace DiscRipper
 
                 await freac.EnsureInstalledAsync(message => Ui(() => SetStatus(row, message, Color.Purple)), token);
                 string staging = Path.Combine(outputRoot, "Staging", "Audio", row.Letter + "_" + DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss"));
-                FreacRipResult rip = await freac.RipAlacAsync(row.Letter, toc, staging, null, p => Ui(() =>
+                FreacRipResult rip = await freac.RipAlacAsync(row.Letter, toc, staging, null, p =>
                 {
                     int track = Math.Min(toc.TrackOffsets.Count, (p * toc.TrackOffsets.Count / 100) + 1);
-                    SetStatus(row, "Ripping ALAC track " + track + " of " + toc.TrackOffsets.Count, Color.Purple);
-                    SetProgress(row, p);
-                }), token);
+                    Ui(() => SetStatus(row, "Ripping ALAC track " + track + " of " + toc.TrackOffsets.Count, Color.Purple));
+                    QueueProgress(row, p);
+                }, token);
                 log.Write(rip.Output);
                 if (!rip.Success) throw new InvalidOperationException("fre:ac did not produce the expected number of ALAC tracks. See " + log.PathName);
 
@@ -591,11 +601,32 @@ namespace DiscRipper
             try { row.TypeBox.SelectedItem = DisplayName(kind); }
             finally { row.SuppressTypeChange = false; }
         }
-        private void SetStatus(DriveRow row, string text, Color color) { row.StatusLabel.Text = text; row.StatusLabel.ForeColor = color; }
+        private void SetStatus(DriveRow row, string text, Color color)
+        {
+            if (row.StatusLabel.Text != text) row.StatusLabel.Text = text;
+            if (row.StatusLabel.ForeColor != color) row.StatusLabel.ForeColor = color;
+        }
+        private void QueueProgress(DriveRow row, int value)
+        {
+            value = Math.Max(0, Math.Min(100, value));
+            lock (row.ProgressSync)
+            {
+                DateTime now = DateTime.UtcNow;
+                if (value == row.LastQueuedProgress) return;
+                if (value < 99 && (now - row.LastProgressQueued).TotalMilliseconds < 250) return;
+                row.LastQueuedProgress = value;
+                row.LastProgressQueued = now;
+            }
+            Ui(() => SetProgress(row, value));
+        }
         private static void SetProgress(DriveRow row, int value)
         {
+            value = Math.Max(row.ProgressBar.Minimum, Math.Min(row.ProgressBar.Maximum, value));
+            if (row.LastRenderedProgress == value) return;
             row.ProgressBar.Style = ProgressBarStyle.Continuous;
-            row.ProgressBar.Value = Math.Max(row.ProgressBar.Minimum, Math.Min(row.ProgressBar.Maximum, value));
+            row.ProgressBar.Value = value;
+            row.LastRenderedProgress = value;
+            lock (row.ProgressSync) row.LastQueuedProgress = value;
         }
         private void Ui(Action action) { if (closing || IsDisposed) return; if (InvokeRequired) BeginInvoke(action); else action(); }
         private static void PlayCompletionSound(bool success) { if (success) SystemSounds.Asterisk.Play(); else SystemSounds.Hand.Play(); }

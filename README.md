@@ -14,6 +14,7 @@ Media Nexus ARM is a Windows automatic ripping machine for movies, TV series, mu
 - Selects a probable main feature for movies instead of copying every title
 - Clusters similarly timed episode titles while excluding likely Play All and short extras
 - Runs independent MakeMKV and audio jobs concurrently
+- Throttles UI rendering and avoids polling busy drives to remain responsive during multi-disc sessions
 - Downloads and validates the official portable fre:ac 1.1.7 engine on first audio rip
 - Rips audio CDs to lossless ALAC `.m4a`; iTunes is no longer used
 - Calculates MusicBrainz Disc IDs directly from the physical CD TOC
