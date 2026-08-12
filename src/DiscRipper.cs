@@ -116,7 +116,7 @@ namespace DiscRipper
 
             footer.AutoSize = true;
             footer.Padding = new Padding(0, 8, 0, 0);
-            footer.Text = "Media is detected automatically. Select a type to override detection.";
+            footer.Text = "Select a media type for each inserted disc. No rip starts while the type is None.";
             root.Controls.Add(footer, 0, 2);
 
             pollTimer.Interval = 2000;
@@ -181,7 +181,7 @@ namespace DiscRipper
             UpdateGridBounds();
             driveGrid.ResumeLayout();
             footer.Text = (selectedDrives.Count == 0 ? "No selected drives are currently connected. Use Configure drives." :
-                "Media is detected automatically. Select a type to override detection.") + "   Output: " + outputRoot;
+                "Select a media type for each inserted disc. No rip starts while the type is None.") + "   Output: " + outputRoot;
         }
 
         private void ConfigureDrives(object sender, EventArgs e)
@@ -226,7 +226,7 @@ namespace DiscRipper
             var deviceLabel = new Label { Text = device, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true, Padding = new Padding(5, 0, 0, 0) };
             var discLabel = new Label { Text = "Empty", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true, Padding = new Padding(5, 0, 0, 0) };
             var type = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, Margin = new Padding(5, 9, 5, 5) };
-            type.Items.AddRange(new object[] { "Auto", "Movie", "TV Series", "Book", "Music" });
+            type.Items.AddRange(new object[] { "None", "Movie", "TV Series", "Book", "Music" });
             type.SelectedIndex = 0;
             var status = new Label { Text = "Waiting for disc", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true, Padding = new Padding(5, 0, 0, 0) };
             var progress = new ProgressBar { Dock = DockStyle.Fill, Minimum = 0, Maximum = 100, Value = 0, Style = ProgressBarStyle.Continuous, Margin = new Padding(5, 0, 5, 4) };
@@ -281,7 +281,10 @@ namespace DiscRipper
             MediaKind kind = SelectedKind(row);
             if (kind == MediaKind.Choose)
             {
-                SetStatus(row, "Analyzing disc...", Color.DarkBlue);
+                SetStatus(row, "Disc detected - select a media type", Color.DarkOrange);
+                SetProgress(row, 0);
+                if (newlySeen) SystemSounds.Asterisk.Play();
+                return;
             }
 
             row.Busy = true;
@@ -591,7 +594,7 @@ namespace DiscRipper
                 case "Book": return MediaKind.Book; case "Music": return MediaKind.Music; default: return MediaKind.Choose;
             }
         }
-        private static string DisplayName(MediaKind kind) { return kind == MediaKind.TVSeries ? "TV Series" : kind == MediaKind.Choose ? "Auto" : kind.ToString(); }
+        private static string DisplayName(MediaKind kind) { return kind == MediaKind.TVSeries ? "TV Series" : kind == MediaKind.Choose ? "None" : kind.ToString(); }
         private static void SetType(DriveRow row, MediaKind kind)
         {
             row.SuppressTypeChange = true;

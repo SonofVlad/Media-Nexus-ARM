@@ -9,8 +9,8 @@ Media Nexus ARM is a Windows automatic ripping machine for movies, TV series, mu
 ## Current v0.2 features
 
 - Remembers any number of user-selected optical drives; tested around a seven-drive layout
-- Automatically distinguishes audio CDs, likely movies, and likely TV discs
-- Keeps a per-drive manual Movie / TV Series / Music / Book override
+- Requires an explicit per-drive Movie / TV Series / Music / Book selection before starting
+- Defaults every drive to None and resets it to None after disc removal
 - Selects a probable main feature for movies instead of copying every title
 - Clusters similarly timed episode titles while excluding likely Play All and short extras
 - Runs independent MakeMKV and audio jobs concurrently
@@ -38,7 +38,7 @@ No iTunes, MusicBrainz Picard, fre:ac installation, FFmpeg, Python, or API key i
 2. Install MakeMKV.
 3. Run `Media-Nexus-ARM.exe`.
 4. Select the optical drives to manage and an output folder.
-5. Leave each drive on **Auto** for automatic detection, or select a media type as an override.
+5. Insert a disc, then select Movie, TV Series, Music, or Book for that drive.
 6. Insert discs.
 
 The application is portable and does not create an installer or automatic-start entry.
@@ -58,9 +58,9 @@ The application is portable and does not create an installer or automatic-start 
 
 MusicBrainz or artwork failure does not discard a successful extraction. Unidentified albums are retained in `Pending Metadata`; incomplete post-processing remains in `Staging` for recovery.
 
-## Automatic video selection
+## Video title selection
 
-Media Nexus ARM uses MakeMKV's title information without FFmpeg/ffprobe. A clearly dominant feature-length title is treated as a movie. A group of two or more similarly timed 15-90 minute titles is treated as probable TV episodes; short extras and a combined Play All title are excluded from the rip selection. Low-confidence discs stop at **Needs identification** so the user can choose an override instead of accepting a silent guess.
+After the user selects Movie or TV Series, Media Nexus ARM uses MakeMKV's title information without FFmpeg/ffprobe. Movie mode selects the longest substantial title. TV Series mode selects the similarly timed probable episode cluster while excluding short extras and a combined Play All title.
 
 These are conservative heuristics. Unusually authored or obfuscated discs can still require manual selection.
 
