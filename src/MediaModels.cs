@@ -22,6 +22,13 @@ namespace DiscRipper
         public long SizeBytes;
         public int Chapters;
         public string Name;
+        public string Playlist;
+        public string OutputFileName;
+        public readonly List<string> Segments = new List<string>();
+        public bool Composite;
+        public string SelectionReason;
+        public string DurationText { get { TimeSpan d = TimeSpan.FromSeconds(DurationSeconds); return string.Format("{0}:{1:00}:{2:00}", (int)d.TotalHours, d.Minutes, d.Seconds); } }
+        public string SizeText { get { return SizeBytes <= 0 ? "" : (SizeBytes / 1073741824.0).ToString("0.0") + " GB"; } }
     }
 
     internal sealed class DiscAnalysis

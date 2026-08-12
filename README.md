@@ -13,6 +13,10 @@ Media Nexus ARM is a Windows automatic ripping machine for movies, TV series, mu
 - Defaults every drive to None and resets it to None after disc removal
 - Selects a probable main feature for movies instead of copying every title
 - Clusters similarly timed episode titles while excluding likely Play All and short extras
+- Shows a pre-rip title confirmation table with runtime, size, chapters, playlist, segment map, and composite warnings
+- Detects longer composite Blu-ray playlists that contain a coherent feature playlist (including the tested Deja Vu structure)
+- Offers safe post-rip Plex naming for movies and sequential TV episodes
+- Can retrieve TV show identity, year, IMDb ID, and episode names from TVMaze without an account or API key
 - Runs independent MakeMKV and audio jobs concurrently
 - Throttles UI rendering and avoids polling busy drives to remain responsive during multi-disc sessions
 - Downloads and validates the official portable fre:ac 1.1.7 engine on first audio rip
@@ -81,9 +85,11 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1
 
 The result is `dist\Media-Nexus-ARM.exe`. TagLibSharp is embedded in the executable by the build.
 
-## Roadmap
+## Video naming
 
-The local IMDb dataset, high-confidence Plex movie naming, and assisted TV season/episode naming described for the larger v0.2 upgrade remain the next video-metadata milestone. The current build improves video classification/title selection but does not claim IMDb-based naming yet.
+After ripping, Movie mode can create `Movies\Title (Year) {imdb-tt...}\Title (Year) {imdb-tt...}.mkv`. TV mode asks for the show, season, and first episode, can fill episode names from TVMaze, and creates `TV Shows\Show (Year)\Season 03\Show (Year) - S03E05 - Episode.mkv`. Choosing **Keep Original Names** preserves the raw MakeMKV folder.
+
+The downloadable local IMDb search database remains a roadmap item. Movie title/year/IMDb confirmation is currently user-assisted; Media Nexus does not silently invent a movie match.
 
 ## Third-party components
 

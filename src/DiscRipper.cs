@@ -353,15 +353,25 @@ namespace DiscRipper
                 ProcessResult info = await RunMakeMkvInfo(discIndex, row.Letter, token);
                 analysis = DiscAnalyzer.AnalyzeVideo(info.Output);
                 analysis.Kind = requested;
-                analysis.SelectedTitleIds.Clear();
-                if (requested == MediaKind.TVSeries) analysis.SelectedTitleIds.AddRange(DiscAnalyzer.SelectTvTitles(analysis.VideoTitles));
-                else
-                {
-                    VideoTitleInfo longest = analysis.VideoTitles.Where(t => t.DurationSeconds >= 900).OrderByDescending(t => t.DurationSeconds).FirstOrDefault();
-                    if (longest != null) analysis.SelectedTitleIds.Add(longest.Id);
-                }
+                List<int> selected = await SelectVideoTitles(requested, analysis.VideoTitles);
+                if (selected == null) throw new OperationCanceledException("Title selection was cancelled.");
+                analysis.SelectedTitleIds.Clear(); analysis.SelectedTitleIds.AddRange(selected);
             }
             return await RipVideo(row, requested, analysis, discIndex, token);
+        }
+
+        private Task<List<int>> SelectVideoTitles(MediaKind kind, IList<VideoTitleInfo> titles)
+        {
+            var completion = new TaskCompletionSource<List<int>>();
+            Ui(() =>
+            {
+                using (var dialog = new VideoSelectionForm(kind, titles))
+                {
+                    DialogResult result = dialog.ShowDialog(this);
+                    completion.SetResult(result == DialogResult.OK ? dialog.SelectedTitleIds : null);
+                }
+            });
+            return completion.Task;
         }
 
         private async Task<DiscToc> WaitForAudioToc(DriveRow row, CancellationToken token)
@@ -456,13 +466,14 @@ namespace DiscRipper
             if (titleIds.Count == 0) throw new InvalidOperationException(kind == MediaKind.TVSeries ? "No high-confidence episode set was found." : "No probable main feature was found.");
             bool allOk = true;
             int completedTitles = 0;
-            foreach (int title in titleIds)
+            var rippedFiles = new List<string>();
+            foreach (int title in titleIds.OrderBy(x => x))
             {
                 token.ThrowIfCancellationRequested();
                 string titleText = "title " + title;
                 Ui(() => { SetStatus(row, "Ripping " + titleText + "...", Color.DarkBlue); SetProgress(row, completedTitles * 100 / titleIds.Count); });
                 string target = title.ToString();
-                int filesBefore = Directory.GetFiles(outDir, "*.mkv").Length;
+                var filesBefore = new HashSet<string>(Directory.GetFiles(outDir, "*.mkv"), StringComparer.OrdinalIgnoreCase);
                 int titlesDoneAtStart = completedTitles;
                 var result = await RunProcess(makeMkv, "-r --noscan --minlength=" + MinLengthSeconds + " mkv disc:" + discIndex + " " + target + " \"" + outDir + "\"", token, percent =>
                 {
@@ -471,12 +482,39 @@ namespace DiscRipper
                 });
                 File.AppendAllText(logPath, result.Output, Encoding.UTF8);
                 bool copied = result.Output.IndexOf("Copy complete", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                              (result.ExitCode == 0 && Directory.GetFiles(outDir, "*.mkv").Length > filesBefore);
+                              (result.ExitCode == 0 && Directory.GetFiles(outDir, "*.mkv").Length > filesBefore.Count);
                 if (!copied) { allOk = false; break; }
+                string created = Directory.GetFiles(outDir, "*.mkv").Where(path => !filesBefore.Contains(path)).OrderByDescending(path => new FileInfo(path).LastWriteTimeUtc).FirstOrDefault();
+                if (created != null) { rippedFiles.Add(created); File.AppendAllText(logPath, "MakeMKV title " + title + " -> " + created + Environment.NewLine, Encoding.UTF8); }
                 completedTitles++;
             }
-            if (allOk) File.AppendAllText(logPath, "Completed output: " + outDir + Environment.NewLine, Encoding.UTF8);
+            if (allOk)
+            {
+                string final = await NameVideoOutput(kind, discName, rippedFiles, logPath);
+                File.AppendAllText(logPath, "Completed output: " + final + Environment.NewLine, Encoding.UTF8);
+            }
             return allOk;
+        }
+
+        private async Task<string> NameVideoOutput(MediaKind kind, string discName, IList<string> rippedFiles, string logPath)
+        {
+            if (rippedFiles.Count == 0) return Path.GetDirectoryName(logPath);
+            var completion = new TaskCompletionSource<VideoNamingResult>();
+            Ui(() =>
+            {
+                using (var dialog = new VideoNamingForm(kind, discName, rippedFiles.Count))
+                {
+                    DialogResult result = dialog.ShowDialog(this);
+                    completion.SetResult(result == DialogResult.OK ? dialog.Result : null);
+                }
+            });
+            VideoNamingResult naming = await completion.Task;
+            if (naming == null) return Path.GetDirectoryName(rippedFiles[0]);
+            Action<string> log = message => File.AppendAllText(logPath, message + Environment.NewLine, Encoding.UTF8);
+            string final = kind == MediaKind.Movie ? VideoOrganizer.OrganizeMovie(rippedFiles[0], outputRoot, naming, log) : VideoOrganizer.OrganizeTv(rippedFiles, outputRoot, naming, log);
+            string original = Path.GetDirectoryName(rippedFiles[0]);
+            try { if (Directory.Exists(original) && !Directory.EnumerateFileSystemEntries(original).Any()) Directory.Delete(original); } catch { }
+            return final;
         }
 
         private async Task<bool> RipAudio(DriveRow row, MediaKind kind, DiscToc toc, CancellationToken token)

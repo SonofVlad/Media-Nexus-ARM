@@ -12,7 +12,7 @@ namespace DiscRipper
 {
     internal sealed class MusicBrainzClient
     {
-        private const string UserAgent = "Media-Nexus-ARM/0.2.8 (https://github.com/SonofVlad/Media-Nexus-ARM)";
+        private const string UserAgent = "Media-Nexus-ARM/0.3.0 (https://github.com/SonofVlad/Media-Nexus-ARM)";
         private static readonly SemaphoreSlim RequestGate = new SemaphoreSlim(1, 1);
         private static DateTime lastRequest = DateTime.MinValue;
 
