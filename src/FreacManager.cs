@@ -61,7 +61,7 @@ namespace DiscRipper
             Directory.CreateDirectory(destination);
             int driveIndex = GetFreacDriveIndex(driveLetter);
             if (driveIndex < 0) throw new InvalidOperationException("Could not map drive " + driveLetter + ": to a fre:ac device.");
-            var args = new List<string> { "--drive=" + driveIndex, "--track=all", "--encoder=coreaudio", "-d", Quote(destination), "--pattern=<track>", "--eject" };
+            var args = new List<string> { "--drive=" + driveIndex, "--track=all", "--encoder=coreaudio", "-d", Quote(destination), "--pattern=<track>" };
             if (!string.IsNullOrWhiteSpace(coverPath) && File.Exists(coverPath)) args.Add("--add-cover=" + Quote(coverPath));
             args.Add("--"); args.Add("-f"); args.Add("ALAC");
             int completed = 0;
