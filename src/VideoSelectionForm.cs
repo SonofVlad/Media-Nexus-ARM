@@ -12,14 +12,15 @@ namespace DiscRipper
         private readonly bool movie;
         public List<int> SelectedTitleIds { get; private set; }
 
-        public VideoSelectionForm(MediaKind kind, IList<VideoTitleInfo> titles)
+        public VideoSelectionForm(MediaKind kind, string driveLetter, IList<VideoTitleInfo> titles)
         {
             movie = kind == MediaKind.Movie;
-            Text = "Media Nexus ARM - Select " + (movie ? "Movie" : "TV Episode") + " Titles";
+            string drive = driveLetter.TrimEnd(':') + ":";
+            Text = "Media Nexus ARM - Drive " + drive + " - Select " + (movie ? "Movie" : "TV Episode") + " Titles";
             StartPosition = FormStartPosition.CenterParent; Font = new Font("Segoe UI", 9F); Size = new Size(1050, 500); MinimumSize = new Size(850, 400);
             var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(12), RowCount = 3, ColumnCount = 1 };
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); root.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            root.Controls.Add(new Label { Text = movie ? "Confirm the main feature. Composite playlists are not selected automatically." : "Confirm the individual episode playlists. Play All and likely extras should remain unchecked.", AutoSize = true, Padding = new Padding(0, 0, 0, 8) });
+            root.Controls.Add(new Label { Text = "Drive " + drive + " - " + (movie ? "Confirm the main feature. Composite playlists are not selected automatically." : "Confirm the individual episode playlists. Play All and likely extras should remain unchecked."), AutoSize = true, Padding = new Padding(0, 0, 0, 8) });
             ConfigureGrid(); root.Controls.Add(grid, 0, 1);
             IEnumerable<VideoTitleInfo> ordered = movie ? (IEnumerable<VideoTitleInfo>)DiscAnalyzer.RankMovieCandidates(titles) : titles.Where(t => t.DurationSeconds >= 900).OrderBy(t => t.Id);
             List<int> suggested = movie ? ordered.Where(t => !t.Composite).Take(1).Select(t => t.Id).ToList() : DiscAnalyzer.SelectTvTitles(titles);

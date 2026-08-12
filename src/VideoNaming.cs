@@ -27,24 +27,25 @@ namespace DiscRipper
         private readonly int fileCount;
         public VideoNamingResult Result { get; private set; }
 
-        public VideoNamingForm(MediaKind kind, string discLabel, int fileCount)
+        public VideoNamingForm(MediaKind kind, string driveLetter, string discLabel, int fileCount)
         {
-            this.kind = kind; this.fileCount = fileCount; Text = "Media Nexus ARM - Name " + (kind == MediaKind.Movie ? "Movie" : "TV Episodes"); StartPosition = FormStartPosition.CenterParent; Font = new Font("Segoe UI", 9F);
+            string drive = driveLetter.TrimEnd(':') + ":";
+            this.kind = kind; this.fileCount = fileCount; Text = "Media Nexus ARM - Drive " + drive + " - Name " + (kind == MediaKind.Movie ? "Movie" : "TV Episodes"); StartPosition = FormStartPosition.CenterParent; Font = new Font("Segoe UI", 9F);
             Size = kind == MediaKind.Movie ? new Size(590, 270) : new Size(650, 500); FormBorderStyle = FormBorderStyle.SizableToolWindow;
-            var grid = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(14), ColumnCount = 2, RowCount = kind == MediaKind.Movie ? 4 : 7 };
+            var grid = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(14), ColumnCount = 2, RowCount = kind == MediaKind.Movie ? 5 : 8 };
             grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150)); grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            title.Text = FriendlyDiscLabel(discLabel); Add(grid, 0, "Title / Show", title); Add(grid, 1, "Year (optional)", year);
+            title.Text = FriendlyDiscLabel(discLabel); Add(grid, 0, "Drive", new Label { Text = drive, TextAlign = ContentAlignment.MiddleLeft }); Add(grid, 1, "Title / Show", title); Add(grid, 2, "Year (optional)", year);
             int buttonRow;
             if (kind == MediaKind.TVSeries)
             {
-                Add(grid, 2, "Season", season); Add(grid, 3, "First episode", episode);
-                grid.Controls.Add(new Label { Text = "Episode names\r\n(one per line, optional)", Dock = DockStyle.Fill, TextAlign = ContentAlignment.TopLeft }, 0, 4);
-                episodeNames.Dock = DockStyle.Fill; grid.Controls.Add(episodeNames, 1, 4); grid.RowStyles.Add(new RowStyle(SizeType.AutoSize)); grid.RowStyles.Add(new RowStyle(SizeType.AutoSize)); grid.RowStyles.Add(new RowStyle(SizeType.AutoSize)); grid.RowStyles.Add(new RowStyle(SizeType.AutoSize)); grid.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+                Add(grid, 3, "Season", season); Add(grid, 4, "First episode", episode);
+                grid.Controls.Add(new Label { Text = "Episode names\r\n(one per line, optional)", Dock = DockStyle.Fill, TextAlign = ContentAlignment.TopLeft }, 0, 5);
+                episodeNames.Dock = DockStyle.Fill; grid.Controls.Add(episodeNames, 1, 5); grid.RowStyles.Add(new RowStyle(SizeType.AutoSize)); grid.RowStyles.Add(new RowStyle(SizeType.AutoSize)); grid.RowStyles.Add(new RowStyle(SizeType.AutoSize)); grid.RowStyles.Add(new RowStyle(SizeType.AutoSize)); grid.RowStyles.Add(new RowStyle(SizeType.AutoSize)); grid.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
                 var lookup = new Button { Text = "Find Episode Names with TVMaze", AutoSize = true }; lookup.Click += LookupEpisodes;
                 var lookupRow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true }; lookupRow.Controls.Add(lookup); lookupRow.Controls.Add(new Label { Text = fileCount + " selected file(s) will be numbered sequentially.", AutoSize = true, ForeColor = Color.DimGray, Padding = new Padding(8, 7, 0, 0) });
-                grid.Controls.Add(lookupRow, 1, 5); buttonRow = 6;
+                grid.Controls.Add(lookupRow, 1, 6); buttonRow = 7;
             }
-            else { grid.Controls.Add(new Label { Text = "Leave the title blank and choose Keep Original Names to preserve the raw rip folder.", AutoSize = true, ForeColor = Color.DimGray }, 1, 2); buttonRow = 3; }
+            else { grid.Controls.Add(new Label { Text = "Leave the title blank and choose Keep Original Names to preserve the raw rip folder.", AutoSize = true, ForeColor = Color.DimGray }, 1, 3); buttonRow = 4; }
             var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Padding = new Padding(0, 8, 0, 0) };
             var apply = new Button { Text = "Apply Naming", AutoSize = true }; var skip = new Button { Text = "Keep Original Names", DialogResult = DialogResult.Ignore, AutoSize = true }; var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true };
             apply.Click += ApplyClicked; buttons.Controls.Add(apply); buttons.Controls.Add(skip); buttons.Controls.Add(cancel); grid.Controls.Add(buttons, 0, buttonRow); grid.SetColumnSpan(buttons, 2); Controls.Add(grid); AcceptButton = apply; CancelButton = cancel;

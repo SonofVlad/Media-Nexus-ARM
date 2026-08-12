@@ -353,19 +353,19 @@ namespace DiscRipper
                 ProcessResult info = await RunMakeMkvInfo(discIndex, row.Letter, token);
                 analysis = DiscAnalyzer.AnalyzeVideo(info.Output);
                 analysis.Kind = requested;
-                List<int> selected = await SelectVideoTitles(requested, analysis.VideoTitles);
+                List<int> selected = await SelectVideoTitles(row.Letter, requested, analysis.VideoTitles);
                 if (selected == null) throw new OperationCanceledException("Title selection was cancelled.");
                 analysis.SelectedTitleIds.Clear(); analysis.SelectedTitleIds.AddRange(selected);
             }
             return await RipVideo(row, requested, analysis, discIndex, token);
         }
 
-        private Task<List<int>> SelectVideoTitles(MediaKind kind, IList<VideoTitleInfo> titles)
+        private Task<List<int>> SelectVideoTitles(string driveLetter, MediaKind kind, IList<VideoTitleInfo> titles)
         {
             var completion = new TaskCompletionSource<List<int>>();
             Ui(() =>
             {
-                using (var dialog = new VideoSelectionForm(kind, titles))
+                using (var dialog = new VideoSelectionForm(kind, driveLetter, titles))
                 {
                     DialogResult result = dialog.ShowDialog(this);
                     completion.SetResult(result == DialogResult.OK ? dialog.SelectedTitleIds : null);
@@ -490,19 +490,19 @@ namespace DiscRipper
             }
             if (allOk)
             {
-                string final = await NameVideoOutput(kind, discName, rippedFiles, logPath);
+                string final = await NameVideoOutput(row.Letter, kind, discName, rippedFiles, logPath);
                 File.AppendAllText(logPath, "Completed output: " + final + Environment.NewLine, Encoding.UTF8);
             }
             return allOk;
         }
 
-        private async Task<string> NameVideoOutput(MediaKind kind, string discName, IList<string> rippedFiles, string logPath)
+        private async Task<string> NameVideoOutput(string driveLetter, MediaKind kind, string discName, IList<string> rippedFiles, string logPath)
         {
             if (rippedFiles.Count == 0) return Path.GetDirectoryName(logPath);
             var completion = new TaskCompletionSource<VideoNamingResult>();
             Ui(() =>
             {
-                using (var dialog = new VideoNamingForm(kind, discName, rippedFiles.Count))
+                using (var dialog = new VideoNamingForm(kind, driveLetter, discName, rippedFiles.Count))
                 {
                     DialogResult result = dialog.ShowDialog(this);
                     completion.SetResult(result == DialogResult.OK ? dialog.Result : null);
