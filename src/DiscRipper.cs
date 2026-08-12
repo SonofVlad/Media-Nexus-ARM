@@ -31,7 +31,7 @@ namespace DiscRipper
     {
         public string Letter;
         public string Device;
-        public Label DiscLabel;
+        public TextBox DiscLabel;
         public ComboBox TypeBox;
         public Label StatusLabel;
         public ProgressBar ProgressBar;
@@ -240,7 +240,7 @@ namespace DiscRipper
             grid.RowStyles.Add(new RowStyle(SizeType.Absolute, GridRowHeight));
             var driveLabel = new Label { Text = letter + ":", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, Font = new Font("Segoe UI", 10F, FontStyle.Bold) };
             var deviceLabel = new Label { Text = device, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true, Padding = new Padding(5, 0, 0, 0) };
-            var discLabel = new Label { Text = "Empty", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true, Padding = new Padding(5, 0, 0, 0) };
+            var discLabel = new TextBox { Text = "Empty", Dock = DockStyle.Fill, Margin = new Padding(5, 9, 5, 5) };
             var type = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, Margin = new Padding(5, 9, 5, 5) };
             type.Items.AddRange(new object[] { "Media Type", "Book", "Movie", "Music", "TV Series" });
             type.SelectedIndex = 0;
@@ -348,7 +348,6 @@ namespace DiscRipper
                 finally
                 {
                     bool stopped = row.StopRequested;
-                    if (!row.AwaitingChoice && !stopped) { Eject(row.Letter); PlayCompletionSound(ok); }
                     Ui(() =>
                     {
                         if (row.AwaitingChoice) { row.Busy = false; row.TypeBox.Enabled = true; return; }
@@ -359,10 +358,12 @@ namespace DiscRipper
                             row.ManualTypeSelected = false; SetType(row, MediaKind.Choose); row.StopRequested = false; return;
                         }
                         if (ok) SetProgress(row, 100);
-                        SetStatus(row, ok ? "Complete — ejected" : "Failed — ejected", ok ? Color.DarkGreen : Color.DarkRed);
+                        SetStatus(row, ok ? "Complete - disc remains inserted" : "Failed - disc remains inserted", ok ? Color.DarkGreen : Color.DarkRed);
                         row.Busy = false;
                         row.TypeBox.Enabled = true;
                         row.StopButton.Enabled = false;
+                        row.ManualTypeSelected = false;
+                        SetType(row, MediaKind.Choose);
                     });
                 }
             });
@@ -470,7 +471,7 @@ namespace DiscRipper
                 if (attempt < 3) await Task.Delay(2000, token);
             }
             WriteProbeLog(letter, "MakeMKV disc-info failed after three attempts.", last == null ? "No MakeMKV output." : last.Output);
-            throw new InvalidOperationException("MakeMKV could not read the disc after three attempts. The disc was left available for the normal failure/eject workflow. " + (last == null ? "" : FirstMakeMkvError(last.Output)));
+            throw new InvalidOperationException("MakeMKV could not read the disc after three attempts. The disc remains inserted. " + (last == null ? "" : FirstMakeMkvError(last.Output)));
         }
 
         private void WriteProbeLog(string letter, string heading, string output)
@@ -532,19 +533,22 @@ namespace DiscRipper
             }
             if (allOk)
             {
-                string final = await NameVideoOutput(row.Letter, kind, discName, rippedFiles, logPath);
+                string final = await NameVideoOutput(row, kind, discName, rippedFiles, logPath);
                 File.AppendAllText(logPath, "Completed output: " + final + Environment.NewLine, Encoding.UTF8);
             }
             return allOk;
         }
 
-        private async Task<string> NameVideoOutput(string driveLetter, MediaKind kind, string discName, IList<string> rippedFiles, string logPath)
+        private async Task<string> NameVideoOutput(DriveRow row, MediaKind kind, string discName, IList<string> rippedFiles, string logPath)
         {
             if (rippedFiles.Count == 0) return Path.GetDirectoryName(logPath);
             var completion = new TaskCompletionSource<VideoNamingResult>();
             Ui(() =>
             {
-                using (var dialog = new VideoNamingForm(kind, driveLetter, discName, rippedFiles.Count))
+                string editedName = SafeName(row.DiscLabel.Text);
+                if (!string.IsNullOrWhiteSpace(editedName) && editedName != "UNKNOWN_DISC" && !string.Equals(editedName, "Audio_unknown disc", StringComparison.OrdinalIgnoreCase)) discName = editedName;
+                File.AppendAllText(logPath, "User-edited disc name: " + discName + Environment.NewLine, Encoding.UTF8);
+                using (var dialog = new VideoNamingForm(kind, row.Letter, discName, rippedFiles.Count))
                 {
                     DialogResult result = dialog.ShowDialog(this);
                     completion.SetResult(result == DialogResult.OK ? dialog.Result : null);

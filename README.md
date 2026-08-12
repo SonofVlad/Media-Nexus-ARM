@@ -27,7 +27,8 @@ Media Nexus ARM is a Windows automatic ripping machine for movies, TV series, mu
 - Retrieves MusicBrainz release/track metadata and Cover Art Archive artwork
 - Embeds tags and artwork, then organizes music as `Music\Artist\Album (Year)\01 - Track.m4a`
 - Preserves successful audio under `Pending Metadata` when identification is unavailable
-- Shows independent status and progress per drive and ejects every completed/failed disc
+- Shows independent status and progress per drive; automatic eject is disabled in the current testing build
+- Allows movie and TV disc names to be edited in the drive table while ripping and uses the edited name during post-rip naming
 - Produces per-job logs and retains recoverable staging files when final processing fails
 
 ## Requirements
