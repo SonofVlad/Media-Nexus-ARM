@@ -4,110 +4,89 @@
   <img src="assets/Media-Nexus-ARM.png" alt="Media Nexus ARM logo" width="256">
 </p>
 
-Media Nexus ARM is a Windows automatic ripping machine for processing movies, TV series, music CDs, and audiobooks across multiple optical drives. Video discs are handled by MakeMKV, while audio CDs can be imported through iTunes.
+Media Nexus ARM is a Windows automatic ripping machine for movies, TV series, music CDs, and audiobooks across multiple optical drives.
 
-## Features
+## Current v0.2 features
 
-- Detects connected optical drives and remembers the drives selected by the user
-- Runs independent MakeMKV jobs across multiple drives
-- Provides Movie, TV Series, Music, and Book modes
-- Displays per-drive status and a master MakeMKV progress bar
-- Supports configurable window and column sizes
-- Supports local, external, mapped, and UNC network output folders
-- Separates output into Movies, TV Series, Music, Audiobooks, and Logs
-- Automatically ejects discs after success or failure
-- Uses distinct Windows sounds for successful and failed jobs
-- Retains MakeMKV logs for failed video jobs
-- Includes an embedded multi-resolution Windows application icon
+- Remembers any number of user-selected optical drives; tested around a seven-drive layout
+- Automatically distinguishes audio CDs, likely movies, and likely TV discs
+- Keeps a per-drive manual Movie / TV Series / Music / Book override
+- Selects a probable main feature for movies instead of copying every title
+- Clusters similarly timed episode titles while excluding likely Play All and short extras
+- Runs independent MakeMKV and audio jobs concurrently
+- Downloads and validates the official portable fre:ac 1.1.7 engine on first audio rip
+- Rips audio CDs to lossless ALAC `.m4a`; iTunes is no longer used
+- Calculates MusicBrainz Disc IDs directly from the physical CD TOC
+- Retrieves MusicBrainz release/track metadata and Cover Art Archive artwork
+- Embeds tags and artwork, then organizes music as `Music\Artist\Album (Year)\01 - Track.m4a`
+- Preserves successful audio under `Pending Metadata` when identification is unavailable
+- Shows independent status and progress per drive and ejects every completed/failed disc
+- Produces per-job logs and retains recoverable staging files when final processing fails
 
 ## Requirements
 
-- Windows 10 or Windows 11
+- Windows 10 or Windows 11, x64
 - [MakeMKV](https://www.makemkv.com/) installed in its standard Program Files location
-- iTunes for Windows when using Music or Book mode
 - One or more optical drives
+- Internet access for the first music rip and music metadata/artwork
+
+No iTunes, MusicBrainz Picard, fre:ac installation, FFmpeg, Python, or API key is required. Media Nexus ARM manages a private portable fre:ac copy under `%LOCALAPPDATA%\Media Nexus ARM\Data\Tools\freac`.
 
 ## Download and run
 
-1. Download `Media-Nexus-ARM.exe` from this repository.
-2. Install MakeMKV and, if needed, iTunes.
+1. Download `Media-Nexus-ARM.exe` from this repository or the latest release.
+2. Install MakeMKV.
 3. Run `Media-Nexus-ARM.exe`.
-4. Select the optical drives Media Nexus ARM should manage.
-5. Choose an output folder. Local disks, external disks, mapped drives, and UNC paths are supported.
-6. Select Movie, TV Series, Music, or Book for each drive—or use a Change All button.
-7. Insert the discs.
+4. Select the optical drives to manage and an output folder.
+5. Leave each drive on **Auto** for automatic detection, or select a media type as an override.
+6. Insert discs.
 
-No installer or automatic-start entry is created.
-
-## iTunes configuration
-
-For Music and Book modes, configure iTunes before starting:
-
-1. Open **Edit > Preferences > General**.
-2. Set **When a CD is inserted** to **Import CD and Eject**.
-3. Open **Import Settings** and select **MP3 Encoder** with the desired quality.
-
-iTunes audio jobs are processed one at a time. After iTunes ejects a disc, Media Nexus ARM copies newly imported MP3 files into the selected output folder. The files remain in the iTunes library.
+The application is portable and does not create an installer or automatic-start entry.
 
 ## Output layout
 
 ```text
 <selected output>/
-├── Movies/
-├── TV Series/
-├── Music/
-├── Audiobooks/
-└── Logs/
+|-- Movies/
+|-- TV Series/
+|-- Music/
+|-- Audiobooks/
+|-- Pending Metadata/
+|-- Staging/
+`-- Logs/
 ```
 
-Each disc receives its own timestamped folder.
+MusicBrainz or artwork failure does not discard a successful extraction. Unidentified albums are retained in `Pending Metadata`; incomplete post-processing remains in `Staging` for recovery.
 
-## Current title-selection behavior
+## Automatic video selection
 
-### Movie mode
+Media Nexus ARM uses MakeMKV's title information without FFmpeg/ffprobe. A clearly dominant feature-length title is treated as a movie. A group of two or more similarly timed 15-90 minute titles is treated as probable TV episodes; short extras and a combined Play All title are excluded from the rip selection. Low-confidence discs stop at **Needs identification** so the user can choose an override instead of accepting a silent guess.
 
-Movie mode currently asks MakeMKV to copy all titles at least 10 minutes long. Depending on the disc, this can include alternate cuts or substantial bonus features.
-
-### TV Series mode
-
-TV mode scans title durations and keeps titles at least 10 minutes long. When at least three qualifying titles are found, it excludes the longest title as a likely **Play All** playlist only if:
-
-- the longest title is at least 1.8 times the median qualifying duration; and
-- the longest title is at least 1.4 times the duration of the second-longest title.
-
-If title parsing fails, the program falls back to copying all titles that satisfy MakeMKV's 10-minute minimum.
-
-These are heuristics. Optical discs do not consistently identify movies, episodes, bonus material, alternate cuts, or deliberately obfuscated playlists.
-
-## Progress reporting
-
-MakeMKV robot-mode `PRGV:current,total,max` messages drive one master progress bar in each drive's Status column. For TV discs copied title-by-title, progress is combined into whole-disc progress.
+These are conservative heuristics. Unusually authored or obfuscated discs can still require manual selection.
 
 ## Settings and privacy
 
-Drive selections, output location, and layout preferences are stored for the current Windows user under:
+Drive selections, output location, and layout preferences are stored for the current Windows user under `HKEY_CURRENT_USER\Software\DiscRipper`.
 
-```text
-HKEY_CURRENT_USER\Software\DiscRipper
-```
-
-Media Nexus ARM does not contain user-specific paths, NAS names, credentials, API tokens, telemetry, or automatic network reporting. MakeMKV and iTunes remain subject to their own licenses and behavior.
+The executable contains no user-specific paths, credentials, tokens, telemetry, or automatic reporting. Network access is limited to downloading the managed fre:ac package and requesting MusicBrainz/Cover Art Archive data during music processing. MakeMKV and fre:ac remain subject to their own licenses and behavior.
 
 ## Build from source
 
-The repository includes a PowerShell build script that uses the C# compiler bundled with the Windows .NET Framework:
+Run:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\build.ps1
 ```
 
-The resulting executable is written to `dist\Media-Nexus-ARM.exe`.
+The result is `dist\Media-Nexus-ARM.exe`. TagLibSharp is embedded in the executable by the build.
 
-## Known limitations
+## Roadmap
 
-- A physical-disc end-to-end test is recommended before loading several drives.
-- The Microsoft Store edition of iTunes does not expose the legacy COM automation interface, so audio completion is detected through disc ejection and newly created MP3 files.
-- Completely accurate automatic movie and episode identification is not possible for every authored or obfuscated disc.
-- The program currently retains detailed MakeMKV logs only for failed video jobs.
+The local IMDb dataset, high-confidence Plex movie naming, and assisted TV season/episode naming described for the larger v0.2 upgrade remain the next video-metadata milestone. The current build improves video classification/title selection but does not claim IMDb-based naming yet.
+
+## Third-party components
+
+- [fre:ac](https://www.freac.org/) is downloaded from its official release and managed separately at runtime.
+- [TagLibSharp 2.3.0](https://github.com/mono/taglib-sharp) is embedded for M4A metadata and is licensed under LGPL-2.1-only. See `THIRD-PARTY-NOTICES.md`.
 
 Only rip media you own or are legally authorized to copy. Laws and license terms vary by location.

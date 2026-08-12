@@ -8,6 +8,7 @@ using System.Linq;
 using System.Media;
 using Microsoft.Win32;
 using System.Runtime.InteropServices;
+using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -37,6 +38,8 @@ namespace DiscRipper
         public Button EjectButton;
         public bool Present;
         public bool Busy;
+        public bool AwaitingChoice;
+        public bool SuppressTypeChange;
         public DateTime FirstSeen;
         public CancellationTokenSource Cancellation;
     }
@@ -47,7 +50,7 @@ namespace DiscRipper
         private const int MinLengthSeconds = 600;
         private readonly Dictionary<string, DriveRow> rows = new Dictionary<string, DriveRow>();
         private readonly System.Windows.Forms.Timer pollTimer = new System.Windows.Forms.Timer();
-        private readonly SemaphoreSlim audioGate = new SemaphoreSlim(1, 1);
+        private readonly FreacManager freac = new FreacManager();
         private readonly ConcurrentDictionary<string, int> discIndexes = new ConcurrentDictionary<string, int>();
         private readonly Label footer = new Label();
         private readonly TableLayoutPanel driveGrid;
@@ -95,6 +98,9 @@ namespace DiscRipper
             var openButton = new Button { Text = "Open Output", AutoSize = true };
             openButton.Click += (s, e) => OpenFolder(outputRoot);
             toolbar.Controls.Add(openButton);
+            var engineButton = new Button { Text = "Audio Engine", AutoSize = true };
+            engineButton.Click += ConfigureAudioEngine;
+            toolbar.Controls.Add(engineButton);
             root.Controls.Add(toolbar, 0, 0);
 
             var gridHost = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
@@ -109,7 +115,7 @@ namespace DiscRipper
 
             footer.AutoSize = true;
             footer.Padding = new Padding(0, 8, 0, 0);
-            footer.Text = "Select a media type before inserting discs, or select it when a disc is detected.";
+            footer.Text = "Media is detected automatically. Select a type to override detection.";
             root.Controls.Add(footer, 0, 2);
 
             pollTimer.Interval = 2000;
@@ -173,7 +179,7 @@ namespace DiscRipper
             UpdateGridBounds();
             driveGrid.ResumeLayout();
             footer.Text = (selectedDrives.Count == 0 ? "No selected drives are currently connected. Use Configure drives." :
-                "Select a media type before inserting discs, or select it when a disc is detected.") + "   Output: " + outputRoot;
+                "Media is detected automatically. Select a type to override detection.") + "   Output: " + outputRoot;
         }
 
         private void ConfigureDrives(object sender, EventArgs e)
@@ -218,7 +224,7 @@ namespace DiscRipper
             var deviceLabel = new Label { Text = device, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true, Padding = new Padding(5, 0, 0, 0) };
             var discLabel = new Label { Text = "Empty", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true, Padding = new Padding(5, 0, 0, 0) };
             var type = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, Margin = new Padding(5, 9, 5, 5) };
-            type.Items.AddRange(new object[] { "Choose...", "Movie", "TV Series", "Book", "Music" });
+            type.Items.AddRange(new object[] { "Auto", "Movie", "TV Series", "Book", "Music" });
             type.SelectedIndex = 0;
             var status = new Label { Text = "Waiting for disc", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true, Padding = new Padding(5, 0, 0, 0) };
             var progress = new ProgressBar { Dock = DockStyle.Fill, Minimum = 0, Maximum = 100, Value = 0, Style = ProgressBarStyle.Continuous, Margin = new Padding(5, 0, 5, 4) };
@@ -227,7 +233,7 @@ namespace DiscRipper
             statusPanel.Controls.Add(status, 0, 0); statusPanel.Controls.Add(progress, 0, 1);
             var eject = new Button { Text = "Eject", Dock = DockStyle.Fill, Margin = new Padding(5, 8, 5, 7) };
             var item = new DriveRow { Letter = letter, Device = device, DiscLabel = discLabel, TypeBox = type, StatusLabel = status, ProgressBar = progress, EjectButton = eject };
-            type.SelectedIndexChanged += (s, e) => { if (!item.Busy) PollDrive(item); };
+            type.SelectedIndexChanged += (s, e) => { if (!item.SuppressTypeChange && !item.Busy) { item.AwaitingChoice = false; PollDrive(item); } };
             eject.Click += (s, e) => Eject(item.Letter);
             rows[letter] = item;
             grid.Controls.Add(driveLabel, 0, rowIndex); grid.Controls.Add(deviceLabel, 1, rowIndex); grid.Controls.Add(discLabel, 2, rowIndex);
@@ -252,9 +258,10 @@ namespace DiscRipper
             if (!present)
             {
                 row.Present = false;
+                row.AwaitingChoice = false;
                 row.FirstSeen = DateTime.MinValue;
                 row.DiscLabel.Text = "Empty";
-                if (!row.Busy) { SetStatus(row, "Waiting for disc", Color.DimGray); SetProgress(row, 0); }
+                if (!row.Busy) { SetType(row, MediaKind.Choose); SetStatus(row, "Waiting for disc", Color.DimGray); SetProgress(row, 0); }
                 return;
             }
 
@@ -262,15 +269,12 @@ namespace DiscRipper
             string label = GetVolumeLabel(row.Letter);
             row.DiscLabel.Text = string.IsNullOrWhiteSpace(label) ? "Audio/unknown disc" : label;
             if (newlySeen) { row.Present = true; row.FirstSeen = DateTime.Now; }
-            if (row.Busy) return;
+            if (row.Busy || row.AwaitingChoice) return;
 
             MediaKind kind = SelectedKind(row);
             if (kind == MediaKind.Choose)
             {
-                SetStatus(row, "Disc detected — choose a media type", Color.DarkOrange);
-                SetProgress(row, 0);
-                if (newlySeen) SystemSounds.Asterisk.Play();
-                return;
+                SetStatus(row, "Analyzing disc...", Color.DarkBlue);
             }
 
             row.Busy = true;
@@ -282,17 +286,15 @@ namespace DiscRipper
                 bool ok = false;
                 try
                 {
-                    ok = kind == MediaKind.Movie || kind == MediaKind.TVSeries
-                        ? await RipVideo(row, kind, row.Cancellation.Token)
-                        : await RipWithITunes(row, kind, row.Cancellation.Token);
+                    ok = await AnalyzeAndRip(row, kind, row.Cancellation.Token);
                 }
                 catch (Exception ex) { Ui(() => SetStatus(row, "Failed: " + ex.Message, Color.DarkRed)); }
                 finally
                 {
-                    Eject(row.Letter);
-                    PlayCompletionSound(ok);
+                    if (!row.AwaitingChoice) { Eject(row.Letter); PlayCompletionSound(ok); }
                     Ui(() =>
                     {
+                        if (row.AwaitingChoice) { row.Busy = false; row.TypeBox.Enabled = true; return; }
                         if (ok) SetProgress(row, 100);
                         SetStatus(row, ok ? "Complete — ejected" : "Failed — ejected", ok ? Color.DarkGreen : Color.DarkRed);
                         row.Busy = false;
@@ -302,14 +304,80 @@ namespace DiscRipper
             });
         }
 
-        private async Task<bool> RipVideo(DriveRow row, MediaKind kind, CancellationToken token)
+        private async Task<bool> AnalyzeAndRip(DriveRow row, MediaKind requested, CancellationToken token)
         {
-            int discIndex;
-            if (!discIndexes.TryGetValue(row.Letter, out discIndex))
+            DiscAnalysis analysis = null;
+            int discIndex = -1;
+            if (requested == MediaKind.Choose)
+            {
+                DiscToc toc = NativeDisc.TryReadAudioToc(row.Letter);
+                if (toc != null) analysis = DiscAnalyzer.AnalyzeAudio(toc);
+                else
+                {
+                    discIndex = await GetMakeMkvDiscIndex(row.Letter);
+                    ProcessResult info = await RunProcess(makeMkv, "-r info disc:" + discIndex, token);
+                    analysis = DiscAnalyzer.AnalyzeVideo(info.Output);
+                }
+                if (analysis.Kind == MediaKind.Choose || analysis.Confidence == DetectionConfidence.Low)
+                {
+                    row.AwaitingChoice = true;
+                    Ui(() => { SetStatus(row, "Needs identification - choose a media type", Color.DarkOrange); SetProgress(row, 0); });
+                    SystemSounds.Asterisk.Play();
+                    return false;
+                }
+                requested = analysis.Kind;
+                Ui(() => { SetType(row, requested); SetStatus(row, "Detected " + DisplayName(requested) + " (" + analysis.Confidence + ")", Color.DarkGreen); });
+            }
+
+            if (requested == MediaKind.Music || requested == MediaKind.Book)
+            {
+                DiscToc toc = analysis == null ? null : analysis.AudioToc;
+                if (toc == null) toc = NativeDisc.TryReadAudioToc(row.Letter);
+                if (toc == null) throw new InvalidOperationException("This does not appear to be an audio CD.");
+                return await RipAudio(row, requested, toc, token);
+            }
+
+            if (analysis == null)
+            {
+                discIndex = await GetMakeMkvDiscIndex(row.Letter);
+                ProcessResult info = await RunProcess(makeMkv, "-r info disc:" + discIndex, token);
+                analysis = DiscAnalyzer.AnalyzeVideo(info.Output);
+                analysis.Kind = requested;
+                analysis.SelectedTitleIds.Clear();
+                if (requested == MediaKind.TVSeries) analysis.SelectedTitleIds.AddRange(DiscAnalyzer.SelectTvTitles(analysis.VideoTitles));
+                else
+                {
+                    VideoTitleInfo longest = analysis.VideoTitles.Where(t => t.DurationSeconds >= 900).OrderByDescending(t => t.DurationSeconds).FirstOrDefault();
+                    if (longest != null) analysis.SelectedTitleIds.Add(longest.Id);
+                }
+            }
+            return await RipVideo(row, requested, analysis, discIndex, token);
+        }
+
+        private void ConfigureAudioEngine(object sender, EventArgs e)
+        {
+            if (rows.Values.Any(r => r.Busy))
+            {
+                MessageBox.Show(this, "Wait for active rips to finish before installing or updating the audio engine.", "Media Nexus ARM", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            using (var dialog = new FreacStatusForm(freac)) dialog.ShowDialog(this);
+        }
+
+        private async Task<int> GetMakeMkvDiscIndex(string letter)
+        {
+            int index;
+            if (!discIndexes.TryGetValue(letter, out index))
             {
                 await RefreshMakeMkvMap();
-                if (!discIndexes.TryGetValue(row.Letter, out discIndex)) throw new InvalidOperationException("MakeMKV could not map this drive");
+                if (!discIndexes.TryGetValue(letter, out index)) throw new InvalidOperationException("MakeMKV could not map this drive");
             }
+            return index;
+        }
+
+        private async Task<bool> RipVideo(DriveRow row, MediaKind kind, DiscAnalysis analysis, int discIndex, CancellationToken token)
+        {
+            if (discIndex < 0) discIndex = await GetMakeMkvDiscIndex(row.Letter);
 
             string typeFolder = kind == MediaKind.Movie ? "Movies" : "TV Series";
             string discName = SafeName(GetVolumeLabel(row.Letter));
@@ -318,18 +386,18 @@ namespace DiscRipper
             Directory.CreateDirectory(outDir);
             string logDir = Path.Combine(outputRoot, "Logs"); Directory.CreateDirectory(logDir);
             string logPath = Path.Combine(logDir, "makemkv_" + row.Letter + "_" + DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss") + ".log");
+            File.AppendAllText(logPath, "Drive: " + row.Letter + ":" + Environment.NewLine + "Disc: " + discName + Environment.NewLine + "Detected type: " + DisplayName(kind) + Environment.NewLine + "Selected MakeMKV titles: " + string.Join(",", analysis.SelectedTitleIds) + Environment.NewLine, Encoding.UTF8);
 
-            Ui(() => SetStatus(row, "Scanning with MakeMKV...", Color.DarkBlue));
-            var titleIds = kind == MediaKind.TVSeries ? await SelectTvTitles(discIndex, token) : new List<int> { -1 };
-            if (titleIds.Count == 0) titleIds.Add(-1);
+            var titleIds = analysis.SelectedTitleIds.Distinct().ToList();
+            if (titleIds.Count == 0) throw new InvalidOperationException(kind == MediaKind.TVSeries ? "No high-confidence episode set was found." : "No probable main feature was found.");
             bool allOk = true;
             int completedTitles = 0;
             foreach (int title in titleIds)
             {
                 token.ThrowIfCancellationRequested();
-                string titleText = title < 0 ? "all titles" : "title " + title;
+                string titleText = "title " + title;
                 Ui(() => { SetStatus(row, "Ripping " + titleText + "...", Color.DarkBlue); SetProgress(row, completedTitles * 100 / titleIds.Count); });
-                string target = title < 0 ? "all" : title.ToString();
+                string target = title.ToString();
                 int filesBefore = Directory.GetFiles(outDir, "*.mkv").Length;
                 int titlesDoneAtStart = completedTitles;
                 var result = await RunProcess(makeMkv, "-r --noscan --minlength=" + MinLengthSeconds + " mkv disc:" + discIndex + " " + target + " \"" + outDir + "\"", token, percent =>
@@ -343,76 +411,68 @@ namespace DiscRipper
                 if (!copied) { allOk = false; break; }
                 completedTitles++;
             }
-            if (allOk && File.Exists(logPath)) File.Delete(logPath);
+            if (allOk) File.AppendAllText(logPath, "Completed output: " + outDir + Environment.NewLine, Encoding.UTF8);
             return allOk;
         }
 
-        private async Task<List<int>> SelectTvTitles(int discIndex, CancellationToken token)
+        private async Task<bool> RipAudio(DriveRow row, MediaKind kind, DiscToc toc, CancellationToken token)
         {
-            var result = await RunProcess(makeMkv, "-r info disc:" + discIndex, token);
-            var durations = new Dictionary<int, int>();
-            foreach (string line in result.Output.Split('\n'))
+            using (var log = new JobLog(outputRoot, row.Letter, kind.ToString()))
             {
-                var id = Regex.Match(line, @"^TINFO:(\d+),");
-                var time = Regex.Match(line, @"(\d+):([0-5]\d):([0-5]\d)");
-                if (!id.Success || !time.Success) continue;
-                int title = int.Parse(id.Groups[1].Value);
-                int seconds = int.Parse(time.Groups[1].Value) * 3600 + int.Parse(time.Groups[2].Value) * 60 + int.Parse(time.Groups[3].Value);
-                if (!durations.ContainsKey(title) || seconds > durations[title]) durations[title] = seconds;
-            }
-            var candidates = durations.Where(x => x.Value >= MinLengthSeconds).OrderBy(x => x.Value).ToList();
-            if (candidates.Count < 3) return candidates.Select(x => x.Key).OrderBy(x => x).ToList();
-            int[] values = candidates.Select(x => x.Value).OrderBy(x => x).ToArray();
-            int median = values.Length % 2 == 1 ? values[values.Length / 2] : (values[values.Length / 2 - 1] + values[values.Length / 2]) / 2;
-            var longest = candidates[candidates.Count - 1]; var second = candidates[candidates.Count - 2];
-            bool playAll = longest.Value >= median * 1.8 && longest.Value >= second.Value * 1.4;
-            return candidates.Where(x => !playAll || x.Key != longest.Key).Select(x => x.Key).OrderBy(x => x).ToList();
-        }
-
-        private async Task<bool> RipWithITunes(DriveRow row, MediaKind kind, CancellationToken token)
-        {
-            await audioGate.WaitAsync(token);
-            try
-            {
-                DateTime started = DateTime.Now.AddSeconds(-5);
-                Ui(() => SetStatus(row, "Opening iTunes — waiting for import and eject...", Color.Purple));
-                Process.Start(new ProcessStartInfo { FileName = "iTunes.exe", UseShellExecute = true });
-                DateTime deadline = DateTime.Now.AddHours(3);
-                while (DateTime.Now < deadline)
+                log.Write("Audio CD: " + toc.DiscId + " / " + toc.TrackOffsets.Count + " tracks");
+                MusicRelease release = null;
+                byte[] cover = null;
+                if (kind == MediaKind.Music)
                 {
-                    token.ThrowIfCancellationRequested();
-                    await Task.Delay(2000, token);
-                    if (!IsMediaPresent(row.Letter))
-                    {
-                        await CopyRecentITunesMp3s(row, kind, started);
-                        return true;
-                    }
+                    Ui(() => SetStatus(row, "Looking up MusicBrainz metadata...", Color.Purple));
+                    var client = new MusicBrainzClient();
+                    List<MusicRelease> releases;
+                    try { releases = await client.LookupDiscAsync(toc, token); }
+                    catch (Exception ex) { releases = new List<MusicRelease>(); log.Write("MusicBrainz unavailable: " + ex.Message); }
+                    if (releases.Count == 1) release = releases[0];
+                    else if (releases.Count > 1) release = await SelectRelease(releases);
+                    if (release != null) cover = await client.TryDownloadCoverAsync(release.Id, token);
+                    log.Write(release == null ? "No release selected; preserving in Pending Metadata." : "Release: " + release.DisplayName);
                 }
-                return false;
+
+                await freac.EnsureInstalledAsync(message => Ui(() => SetStatus(row, message, Color.Purple)), token);
+                string staging = Path.Combine(outputRoot, "Staging", "Audio", row.Letter + "_" + DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss"));
+                FreacRipResult rip = await freac.RipAlacAsync(row.Letter, toc, staging, null, p => Ui(() =>
+                {
+                    int track = Math.Min(toc.TrackOffsets.Count, (p * toc.TrackOffsets.Count / 100) + 1);
+                    SetStatus(row, "Ripping ALAC track " + track + " of " + toc.TrackOffsets.Count, Color.Purple);
+                    SetProgress(row, p);
+                }), token);
+                log.Write(rip.Output);
+                if (!rip.Success) throw new InvalidOperationException("fre:ac did not produce the expected number of ALAC tracks. See " + log.PathName);
+
+                string result;
+                if (kind == MediaKind.Music && release != null) result = MusicOrganizer.TagAndOrganize(rip.Files, release, toc, cover, outputRoot, log.Write);
+                else if (kind == MediaKind.Music) result = MusicOrganizer.MoveToPending(rip.Files, toc, outputRoot, log.Write);
+                else
+                {
+                    result = UniqueDiscFolder(Path.Combine(outputRoot, "Audiobooks"), SafeName(GetVolumeLabel(row.Letter)));
+                    Directory.CreateDirectory(result);
+                    for (int i = 0; i < rip.Files.Length; i++) File.Copy(rip.Files[i], Path.Combine(result, string.Format("{0:00}.m4a", i + 1)), false);
+                }
+                log.Write("Completed: " + result);
+                try { Directory.Delete(staging, true); } catch { }
+                return true;
             }
-            finally { audioGate.Release(); }
         }
 
-        private async Task CopyRecentITunesMp3s(DriveRow row, MediaKind kind, DateTime started)
+        private Task<MusicRelease> SelectRelease(IList<MusicRelease> releases)
         {
-            await Task.Run(() =>
+            var completion = new TaskCompletionSource<MusicRelease>();
+            Ui(() =>
             {
-                string music = Environment.GetFolderPath(Environment.SpecialFolder.MyMusic);
-                string[] roots = { Path.Combine(music, "iTunes", "iTunes Media"), Path.Combine(music, "iTunes", "iTunes Music") };
-                var recent = roots.Where(Directory.Exists).SelectMany(r => Directory.GetFiles(r, "*.mp3", SearchOption.AllDirectories))
-                    .Select(p => new FileInfo(p)).Where(f => f.LastWriteTime >= started).ToList();
-                if (recent.Count == 0) return;
-                string typeFolder = kind == MediaKind.Music ? "Music" : "Audiobooks";
-                string name = (kind == MediaKind.Music ? "MUSIC_" : "BOOK_") + row.Letter;
-                string destination = UniqueDiscFolder(Path.Combine(outputRoot, typeFolder), name);
-                Directory.CreateDirectory(destination);
-                foreach (var file in recent)
+                using (var dialog = new ReleaseSelectionForm(releases))
                 {
-                    string target = Path.Combine(destination, file.Name); int n = 2;
-                    while (File.Exists(target)) target = Path.Combine(destination, Path.GetFileNameWithoutExtension(file.Name) + "_" + n++ + file.Extension);
-                    File.Copy(file.FullName, target, false);
+                    DialogResult result = dialog.ShowDialog(this);
+                    completion.SetResult(result == DialogResult.OK ? dialog.SelectedRelease : null);
                 }
             });
+            return completion.Task;
         }
 
         private async Task RefreshMakeMkvMap()
@@ -466,7 +526,13 @@ namespace DiscRipper
                 case "Book": return MediaKind.Book; case "Music": return MediaKind.Music; default: return MediaKind.Choose;
             }
         }
-        private static string DisplayName(MediaKind kind) { return kind == MediaKind.TVSeries ? "TV Series" : kind == MediaKind.Choose ? "Choose..." : kind.ToString(); }
+        private static string DisplayName(MediaKind kind) { return kind == MediaKind.TVSeries ? "TV Series" : kind == MediaKind.Choose ? "Auto" : kind.ToString(); }
+        private static void SetType(DriveRow row, MediaKind kind)
+        {
+            row.SuppressTypeChange = true;
+            try { row.TypeBox.SelectedItem = DisplayName(kind); }
+            finally { row.SuppressTypeChange = false; }
+        }
         private void SetStatus(DriveRow row, string text, Color color) { row.StatusLabel.Text = text; row.StatusLabel.ForeColor = color; }
         private static void SetProgress(DriveRow row, int value)
         {
@@ -772,6 +838,15 @@ namespace DiscRipper
         [STAThread]
         private static void Main()
         {
+            AppDomain.CurrentDomain.AssemblyResolve += (sender, args) =>
+            {
+                if (!args.Name.StartsWith("TagLibSharp", StringComparison.OrdinalIgnoreCase)) return null;
+                using (Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("MediaNexus.TagLibSharp.dll"))
+                {
+                    if (stream == null) return null;
+                    byte[] bytes = new byte[stream.Length]; stream.Read(bytes, 0, bytes.Length); return Assembly.Load(bytes);
+                }
+            };
             Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false);
             var detected = DriveSettings.DiscoverOpticalDrives();
             var selectedIds = DriveSettings.LoadSelectedIds();
