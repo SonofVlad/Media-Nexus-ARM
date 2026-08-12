@@ -542,25 +542,28 @@ namespace DiscRipper
         private async Task<string> NameVideoOutput(DriveRow row, MediaKind kind, string discName, IList<string> rippedFiles, string logPath)
         {
             if (rippedFiles.Count == 0) return Path.GetDirectoryName(logPath);
-            var completion = new TaskCompletionSource<VideoNamingResult>();
-            Ui(() =>
-            {
-                string editedName = SafeName(row.DiscLabel.Text);
-                if (!string.IsNullOrWhiteSpace(editedName) && editedName != "UNKNOWN_DISC" && !string.Equals(editedName, "Audio_unknown disc", StringComparison.OrdinalIgnoreCase)) discName = editedName;
-                File.AppendAllText(logPath, "User-edited disc name: " + discName + Environment.NewLine, Encoding.UTF8);
-                using (var dialog = new VideoNamingForm(kind, row.Letter, discName, rippedFiles.Count))
-                {
-                    DialogResult result = dialog.ShowDialog(this);
-                    completion.SetResult(result == DialogResult.OK ? dialog.Result : null);
-                }
-            });
-            VideoNamingResult naming = await completion.Task;
-            if (naming == null) return Path.GetDirectoryName(rippedFiles[0]);
+            string editedName = await ReadDiscName(row);
+            if (!string.IsNullOrWhiteSpace(editedName) && editedName != "UNKNOWN_DISC" && !string.Equals(editedName, "Audio_unknown disc", StringComparison.OrdinalIgnoreCase)) discName = editedName;
+            File.AppendAllText(logPath, "User-edited disc name: " + discName + Environment.NewLine, Encoding.UTF8);
             Action<string> log = message => File.AppendAllText(logPath, message + Environment.NewLine, Encoding.UTF8);
-            string final = kind == MediaKind.Movie ? VideoOrganizer.OrganizeMovie(rippedFiles[0], outputRoot, naming, log) : VideoOrganizer.OrganizeTv(rippedFiles, outputRoot, naming, log);
+            if (kind == MediaKind.TVSeries)
+            {
+                string tvFinal = VideoOrganizer.OrganizeTvOriginalNames(rippedFiles, outputRoot, discName, log);
+                string tvOriginal = Path.GetDirectoryName(rippedFiles[0]);
+                try { if (Directory.Exists(tvOriginal) && !Directory.EnumerateFileSystemEntries(tvOriginal).Any()) Directory.Delete(tvOriginal); } catch { }
+                return tvFinal;
+            }
+            string final = VideoOrganizer.OrganizeMovieFromDiscName(rippedFiles[0], outputRoot, discName, log);
             string original = Path.GetDirectoryName(rippedFiles[0]);
             try { if (Directory.Exists(original) && !Directory.EnumerateFileSystemEntries(original).Any()) Directory.Delete(original); } catch { }
             return final;
+        }
+
+        private Task<string> ReadDiscName(DriveRow row)
+        {
+            var completion = new TaskCompletionSource<string>();
+            Ui(() => completion.SetResult(SafeName(row.DiscLabel.Text)));
+            return completion.Task;
         }
 
         private async Task<bool> RipAudio(DriveRow row, MediaKind kind, DiscToc toc, CancellationToken token)
