@@ -40,6 +40,7 @@ namespace DiscRipper
         public bool Busy;
         public bool AwaitingChoice;
         public bool SuppressTypeChange;
+        public bool ManualTypeSelected;
         public DateTime FirstSeen;
         public CancellationTokenSource Cancellation;
     }
@@ -235,7 +236,13 @@ namespace DiscRipper
             statusPanel.Controls.Add(status, 0, 0); statusPanel.Controls.Add(progress, 0, 1);
             var eject = new Button { Text = "Eject", Dock = DockStyle.Fill, Margin = new Padding(5, 8, 5, 7) };
             var item = new DriveRow { Letter = letter, Device = device, DiscLabel = discLabel, TypeBox = type, StatusLabel = status, ProgressBar = progress, EjectButton = eject };
-            type.SelectedIndexChanged += (s, e) => { if (!item.SuppressTypeChange && !item.Busy) { item.AwaitingChoice = false; PollDrive(item); } };
+            type.SelectedIndexChanged += (s, e) =>
+            {
+                if (item.SuppressTypeChange || item.Busy) return;
+                item.AwaitingChoice = false;
+                item.ManualTypeSelected = SelectedKind(item) != MediaKind.Choose;
+                PollDrive(item);
+            };
             eject.Click += (s, e) => Eject(item.Letter);
             rows[letter] = item;
             grid.Controls.Add(driveLabel, 0, rowIndex); grid.Controls.Add(deviceLabel, 1, rowIndex); grid.Controls.Add(discLabel, 2, rowIndex);
@@ -261,6 +268,7 @@ namespace DiscRipper
             {
                 row.Present = false;
                 row.AwaitingChoice = false;
+                row.ManualTypeSelected = false;
                 row.FirstSeen = DateTime.MinValue;
                 row.DiscLabel.Text = "Empty";
                 if (!row.Busy) { SetType(row, MediaKind.Choose); SetStatus(row, "Waiting for disc", Color.DimGray); SetProgress(row, 0); }
@@ -279,7 +287,7 @@ namespace DiscRipper
             }
 
             MediaKind kind = SelectedKind(row);
-            if (kind == MediaKind.Choose)
+            if (kind == MediaKind.Choose || !row.ManualTypeSelected)
             {
                 SetStatus(row, "Disc detected - select a media type", Color.DarkOrange);
                 SetProgress(row, 0);
@@ -316,28 +324,10 @@ namespace DiscRipper
 
         private async Task<bool> AnalyzeAndRip(DriveRow row, MediaKind requested, CancellationToken token)
         {
+            if (!row.ManualTypeSelected || requested == MediaKind.Choose)
+                throw new InvalidOperationException("A media type must be selected manually before a rip can start.");
             DiscAnalysis analysis = null;
             int discIndex = -1;
-            if (requested == MediaKind.Choose)
-            {
-                DiscToc toc = await WaitForAudioToc(row, token);
-                if (toc != null) analysis = DiscAnalyzer.AnalyzeAudio(toc);
-                else
-                {
-                    discIndex = await GetMakeMkvDiscIndex(row.Letter);
-                    ProcessResult info = await RunMakeMkvInfo(discIndex, row.Letter, token);
-                    analysis = DiscAnalyzer.AnalyzeVideo(info.Output);
-                }
-                if (analysis.Kind == MediaKind.Choose || analysis.Confidence == DetectionConfidence.Low)
-                {
-                    row.AwaitingChoice = true;
-                    Ui(() => { SetStatus(row, "Needs identification - choose a media type", Color.DarkOrange); SetProgress(row, 0); });
-                    SystemSounds.Asterisk.Play();
-                    return false;
-                }
-                requested = analysis.Kind;
-                Ui(() => { SetType(row, requested); SetStatus(row, "Detected " + DisplayName(requested) + " (" + analysis.Confidence + ")", Color.DarkGreen); });
-            }
 
             if (requested == MediaKind.Music || requested == MediaKind.Book)
             {
