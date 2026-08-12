@@ -16,7 +16,7 @@ Media Nexus ARM is a Windows automatic ripping machine for movies, TV series, mu
 - Shows a pre-rip title confirmation table with runtime, size, chapters, playlist, segment map, and composite warnings
 - Detects longer composite Blu-ray playlists that contain a coherent feature playlist (including the tested Deja Vu structure)
 - Offers safe post-rip Plex naming for movies and sequential TV episodes
-- Can retrieve TV show identity, year, IMDb ID, and episode names from TVMaze without an account or API key
+- Can retrieve TV show identity, year, and episode names from TVMaze without an account or API key
 - Runs independent MakeMKV and audio jobs concurrently
 - Throttles UI rendering and avoids polling busy drives to remain responsive during multi-disc sessions
 - Downloads and validates the official portable fre:ac 1.1.7 engine on first audio rip
@@ -87,9 +87,9 @@ The result is `dist\Media-Nexus-ARM.exe`. TagLibSharp is embedded in the executa
 
 ## Video naming
 
-After ripping, Movie mode can create `Movies\Title (Year) {imdb-tt...}\Title (Year) {imdb-tt...}.mkv`. TV mode asks for the show, season, and first episode, can fill episode names from TVMaze, and creates `TV Shows\Show (Year)\Season 03\Show (Year) - S03E05 - Episode.mkv`. Choosing **Keep Original Names** preserves the raw MakeMKV folder.
+After ripping, Movie mode can create `Movies\Title (Year)\Title (Year).mkv`. TV mode asks for the show, season, and first episode, can fill episode names from TVMaze, and creates `TV Shows\Show (Year)\Season 03\Show (Year) - S03E05 - Episode.mkv`. Choosing **Keep Original Names** preserves the raw MakeMKV folder.
 
-The downloadable local IMDb search database remains a roadmap item. Movie title/year/IMDb confirmation is currently user-assisted; Media Nexus does not silently invent a movie match.
+The downloadable local IMDb search database remains a roadmap item. Movie title and year confirmation is currently user-assisted; Media Nexus does not silently invent a movie match or place database IDs in visible names.
 
 ## Third-party components
 

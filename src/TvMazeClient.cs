@@ -26,7 +26,7 @@ namespace DiscRipper
             {
                 ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
                 string url = "https://api.tvmaze.com/singlesearch/shows?q=" + Uri.EscapeDataString(show) + "&embed=episodes";
-                var request = (HttpWebRequest)WebRequest.Create(url); request.UserAgent = "Media-Nexus-ARM/0.3.0 (https://github.com/SonofVlad/Media-Nexus-ARM)"; request.Accept = "application/json"; request.Timeout = 30000;
+                var request = (HttpWebRequest)WebRequest.Create(url); request.UserAgent = "Media-Nexus-ARM/0.3.1 (https://github.com/SonofVlad/Media-Nexus-ARM)"; request.Accept = "application/json"; request.Timeout = 30000;
                 string json; using (token.Register(() => request.Abort())) using (var response = request.GetResponse()) using (var reader = new StreamReader(response.GetResponseStream(), Encoding.UTF8)) json = reader.ReadToEnd();
                 var serializer = new JavaScriptSerializer { MaxJsonLength = 16 * 1024 * 1024 }; var root = serializer.DeserializeObject(json) as Dictionary<string, object>;
                 if (root == null) return null;
