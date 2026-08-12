@@ -41,7 +41,25 @@ namespace DiscRipper
                 analysis.Kind = MediaKind.Choose; analysis.Confidence = DetectionConfidence.Low; analysis.Summary = "No substantial video titles found"; return analysis;
             }
 
+            VideoTitleInfo longest = substantial[substantial.Count - 1];
+            VideoTitleInfo second = substantial.Count > 1 ? substantial[substantial.Count - 2] : null;
             List<VideoTitleInfo> episodeCluster = FindEpisodeCluster(substantial);
+            int longestEpisode = episodeCluster.Count == 0 ? 0 : episodeCluster.Max(t => t.DurationSeconds);
+            int combinedEpisodes = episodeCluster.Sum(t => t.DurationSeconds);
+            bool probablePlayAll = episodeCluster.Count >= 2 && longest.DurationSeconds >= combinedEpisodes * 0.80 && longest.DurationSeconds <= combinedEpisodes * 1.20;
+            bool dominantFeature = longest.DurationSeconds >= 4500 &&
+                !probablePlayAll &&
+                (second == null || longest.DurationSeconds >= second.DurationSeconds * 1.35) &&
+                (longestEpisode == 0 || longest.DurationSeconds >= longestEpisode * 1.35);
+            if (dominantFeature)
+            {
+                analysis.Kind = MediaKind.Movie;
+                analysis.Confidence = DetectionConfidence.High;
+                analysis.Summary = "Dominant main feature " + FormatDuration(longest.DurationSeconds);
+                analysis.SelectedTitleIds.Add(longest.Id);
+                return analysis;
+            }
+
             if (episodeCluster.Count >= 2)
             {
                 analysis.Kind = MediaKind.TVSeries;
@@ -51,8 +69,6 @@ namespace DiscRipper
                 return analysis;
             }
 
-            VideoTitleInfo longest = substantial[substantial.Count - 1];
-            VideoTitleInfo second = substantial.Count > 1 ? substantial[substantial.Count - 2] : null;
             bool featureLength = longest.DurationSeconds >= 3600;
             bool dominant = second == null || longest.DurationSeconds >= second.DurationSeconds * 1.35;
             analysis.Kind = MediaKind.Movie;

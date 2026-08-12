@@ -9,7 +9,7 @@ namespace DiscRipper
 {
     internal static class NativeDisc
     {
-        private const uint FileShareRead = 1, FileShareWrite = 2, OpenExisting = 3;
+        private const uint GenericRead = 0x80000000, FileShareRead = 1, FileShareWrite = 2, OpenExisting = 3;
         private const uint IoctlCdromReadToc = 0x00024000;
         private const uint IoctlStorageGetDeviceNumber = 0x002D1080;
 
@@ -39,7 +39,12 @@ namespace DiscRipper
                     int trackNumber = buffer[offset + 2];
                     int frames = (buffer[offset + 5] * 60 * 75) + (buffer[offset + 6] * 75) + buffer[offset + 7];
                     if (trackNumber == 0xAA) toc.LeadoutOffset = frames;
-                    else toc.TrackOffsets.Add(frames);
+                    else
+                    {
+                        int control = buffer[offset + 1] & 0x0F;
+                        if ((control & 0x04) != 0) return null; // Data track: this is not a standard audio CD.
+                        toc.TrackOffsets.Add(frames);
+                    }
                 }
                 if (toc.TrackOffsets.Count != count || toc.LeadoutOffset <= 0) return null;
                 toc.DiscId = CalculateMusicBrainzDiscId(toc);
@@ -64,7 +69,7 @@ namespace DiscRipper
 
         private static IntPtr Open(string letter)
         {
-            return CreateFile(@"\\.\" + letter.TrimEnd(':') + ":", 0, FileShareRead | FileShareWrite, IntPtr.Zero, OpenExisting, 0, IntPtr.Zero);
+            return CreateFile(@"\\.\" + letter.TrimEnd(':') + ":", GenericRead, FileShareRead | FileShareWrite, IntPtr.Zero, OpenExisting, 0, IntPtr.Zero);
         }
 
         private static string CalculateMusicBrainzDiscId(DiscToc toc)

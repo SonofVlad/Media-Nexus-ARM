@@ -317,7 +317,7 @@ namespace DiscRipper
             int discIndex = -1;
             if (requested == MediaKind.Choose)
             {
-                DiscToc toc = NativeDisc.TryReadAudioToc(row.Letter);
+                DiscToc toc = await WaitForAudioToc(row, token);
                 if (toc != null) analysis = DiscAnalyzer.AnalyzeAudio(toc);
                 else
                 {
@@ -339,7 +339,7 @@ namespace DiscRipper
             if (requested == MediaKind.Music || requested == MediaKind.Book)
             {
                 DiscToc toc = analysis == null ? null : analysis.AudioToc;
-                if (toc == null) toc = NativeDisc.TryReadAudioToc(row.Letter);
+                if (toc == null) toc = await WaitForAudioToc(row, token);
                 if (toc == null) throw new InvalidOperationException("This does not appear to be an audio CD.");
                 return await RipAudio(row, requested, toc, token);
             }
@@ -359,6 +359,22 @@ namespace DiscRipper
                 }
             }
             return await RipVideo(row, requested, analysis, discIndex, token);
+        }
+
+        private async Task<DiscToc> WaitForAudioToc(DriveRow row, CancellationToken token)
+        {
+            for (int attempt = 1; attempt <= 5; attempt++)
+            {
+                token.ThrowIfCancellationRequested();
+                DiscToc toc = NativeDisc.TryReadAudioToc(row.Letter);
+                if (toc != null) return toc;
+                if (attempt < 5)
+                {
+                    Ui(() => SetStatus(row, "Checking for audio CD (" + attempt + " of 5)...", Color.Purple));
+                    await Task.Delay(1500, token);
+                }
+            }
+            return null;
         }
 
         private void ConfigureAudioEngine(object sender, EventArgs e)
@@ -395,7 +411,7 @@ namespace DiscRipper
                 if (!IsMediaPresent(letter)) throw new InvalidOperationException("The disc is no longer available.");
                 last = await RunProcess(makeMkv, "-r --noscan --cache=1 info disc:" + discIndex, token);
                 bool usable = last.ExitCode == 0 && last.Output.IndexOf("TINFO:", StringComparison.OrdinalIgnoreCase) >= 0;
-                if (usable) return last;
+                if (usable) { WriteProbeLog(letter, "MakeMKV disc analysis.", last.Output); return last; }
                 if (attempt < 3) await Task.Delay(2000, token);
             }
             WriteProbeLog(letter, "MakeMKV disc-info failed after three attempts.", last == null ? "No MakeMKV output." : last.Output);
