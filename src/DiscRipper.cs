@@ -51,6 +51,7 @@ namespace DiscRipper
         private readonly Dictionary<string, DriveRow> rows = new Dictionary<string, DriveRow>();
         private readonly System.Windows.Forms.Timer pollTimer = new System.Windows.Forms.Timer();
         private readonly FreacManager freac = new FreacManager();
+        private readonly SemaphoreSlim makeMkvMapGate = new SemaphoreSlim(1, 1);
         private readonly ConcurrentDictionary<string, int> discIndexes = new ConcurrentDictionary<string, int>();
         private readonly Label footer = new Label();
         private readonly TableLayoutPanel driveGrid;
@@ -271,6 +272,11 @@ namespace DiscRipper
             row.DiscLabel.Text = string.IsNullOrWhiteSpace(label) ? "Audio/unknown disc" : label;
             if (newlySeen) { row.Present = true; row.FirstSeen = DateTime.Now; }
             if (row.Busy || row.AwaitingChoice) return;
+            if ((DateTime.Now - row.FirstSeen).TotalSeconds < 4)
+            {
+                SetStatus(row, "Disc detected - waiting for drive to settle...", Color.DarkBlue);
+                return;
+            }
 
             MediaKind kind = SelectedKind(row);
             if (kind == MediaKind.Choose)
@@ -316,7 +322,7 @@ namespace DiscRipper
                 else
                 {
                     discIndex = await GetMakeMkvDiscIndex(row.Letter);
-                    ProcessResult info = await RunProcess(makeMkv, "-r info disc:" + discIndex, token);
+                    ProcessResult info = await RunMakeMkvInfo(discIndex, row.Letter, token);
                     analysis = DiscAnalyzer.AnalyzeVideo(info.Output);
                 }
                 if (analysis.Kind == MediaKind.Choose || analysis.Confidence == DetectionConfidence.Low)
@@ -341,7 +347,7 @@ namespace DiscRipper
             if (analysis == null)
             {
                 discIndex = await GetMakeMkvDiscIndex(row.Letter);
-                ProcessResult info = await RunProcess(makeMkv, "-r info disc:" + discIndex, token);
+                ProcessResult info = await RunMakeMkvInfo(discIndex, row.Letter, token);
                 analysis = DiscAnalyzer.AnalyzeVideo(info.Output);
                 analysis.Kind = requested;
                 analysis.SelectedTitleIds.Clear();
@@ -368,12 +374,50 @@ namespace DiscRipper
         private async Task<int> GetMakeMkvDiscIndex(string letter)
         {
             int index;
-            if (!discIndexes.TryGetValue(letter, out index))
+            if (discIndexes.TryGetValue(letter, out index)) return index;
+            await makeMkvMapGate.WaitAsync();
+            try
             {
+                if (discIndexes.TryGetValue(letter, out index)) return index;
                 await RefreshMakeMkvMap();
                 if (!discIndexes.TryGetValue(letter, out index)) throw new InvalidOperationException("MakeMKV could not map this drive");
             }
+            finally { makeMkvMapGate.Release(); }
             return index;
+        }
+
+        private async Task<ProcessResult> RunMakeMkvInfo(int discIndex, string letter, CancellationToken token)
+        {
+            ProcessResult last = null;
+            for (int attempt = 1; attempt <= 3; attempt++)
+            {
+                token.ThrowIfCancellationRequested();
+                if (!IsMediaPresent(letter)) throw new InvalidOperationException("The disc is no longer available.");
+                last = await RunProcess(makeMkv, "-r --noscan --cache=1 info disc:" + discIndex, token);
+                bool usable = last.ExitCode == 0 && last.Output.IndexOf("TINFO:", StringComparison.OrdinalIgnoreCase) >= 0;
+                if (usable) return last;
+                if (attempt < 3) await Task.Delay(2000, token);
+            }
+            WriteProbeLog(letter, "MakeMKV disc-info failed after three attempts.", last == null ? "No MakeMKV output." : last.Output);
+            throw new InvalidOperationException("MakeMKV could not read the disc after three attempts. The disc was left available for the normal failure/eject workflow. " + (last == null ? "" : FirstMakeMkvError(last.Output)));
+        }
+
+        private void WriteProbeLog(string letter, string heading, string output)
+        {
+            try
+            {
+                string folder = Path.Combine(outputRoot, "Logs"); Directory.CreateDirectory(folder);
+                string path = Path.Combine(folder, "makemkv_probe_" + letter + "_" + DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss") + ".log");
+                File.WriteAllText(path, heading + Environment.NewLine + output, Encoding.UTF8);
+            }
+            catch { }
+        }
+
+        private static string FirstMakeMkvError(string output)
+        {
+            foreach (string line in (output ?? "").Split('\n'))
+                if (line.IndexOf("error", StringComparison.OrdinalIgnoreCase) >= 0 || line.IndexOf("failed", StringComparison.OrdinalIgnoreCase) >= 0) return line.Trim();
+            return "See the MakeMKV job log for details.";
         }
 
         private async Task<bool> RipVideo(DriveRow row, MediaKind kind, DiscAnalysis analysis, int discIndex, CancellationToken token)
@@ -481,13 +525,16 @@ namespace DiscRipper
             if (string.IsNullOrWhiteSpace(makeMkv) || !File.Exists(makeMkv)) { Ui(() => footer.Text = "MakeMKV was not found. Install MakeMKV in its standard Program Files location."); return; }
             try
             {
-                var result = await RunProcess(makeMkv, "-r --cache=1 info disc:9999", CancellationToken.None);
-                discIndexes.Clear();
+                var result = await RunProcess(makeMkv, "-r --noscan --cache=1 info disc:9999", CancellationToken.None);
+                var discovered = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
                 foreach (string line in result.Output.Split('\n'))
                 {
                     var match = Regex.Match(line, "^DRV:(\\d+),.*?,\\\"([A-Z]):\\\"\\s*$");
-                    if (match.Success) discIndexes[match.Groups[2].Value] = int.Parse(match.Groups[1].Value);
+                    if (match.Success) discovered[match.Groups[2].Value] = int.Parse(match.Groups[1].Value);
                 }
+                if (discovered.Count == 0) throw new InvalidOperationException("MakeMKV returned no optical-drive mappings.");
+                discIndexes.Clear();
+                foreach (var pair in discovered) discIndexes[pair.Key] = pair.Value;
             }
             catch { }
         }
