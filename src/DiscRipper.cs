@@ -390,7 +390,15 @@ namespace DiscRipper
                 ProcessResult info = await RunMakeMkvInfo(discIndex, row.Letter, token);
                 analysis = DiscAnalyzer.AnalyzeVideo(info.Output);
                 analysis.Kind = requested;
-                List<int> selected = await SelectVideoTitles(row.Letter, requested, analysis.VideoTitles);
+                List<int> selected;
+                int automaticTitle; string automaticReason;
+                if (requested == MediaKind.Movie && DiscAnalyzer.TrySelectHighConfidenceMovie(analysis.VideoTitles, out automaticTitle, out automaticReason))
+                {
+                    selected = new List<int> { automaticTitle };
+                    WriteProbeLog(row.Letter, "Movie title selected automatically: title " + automaticTitle + " (" + automaticReason + ").", info.Output);
+                    Ui(() => SetStatus(row, "High-confidence movie title found - starting rip...", Color.DarkGreen));
+                }
+                else selected = await SelectVideoTitles(row.Letter, requested, analysis.VideoTitles);
                 if (selected == null) throw new OperationCanceledException("Title selection was cancelled.");
                 analysis.SelectedTitleIds.Clear(); analysis.SelectedTitleIds.AddRange(selected);
             }

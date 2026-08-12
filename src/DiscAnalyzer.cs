@@ -102,6 +102,41 @@ namespace DiscRipper
             return candidates.OrderBy(t => t.Composite).ThenByDescending(t => t.DurationSeconds >= 4500).ThenByDescending(t => t.SizeBytes).ToList();
         }
 
+        public static bool TrySelectHighConfidenceMovie(IEnumerable<VideoTitleInfo> source, out int titleId, out string reason)
+        {
+            titleId = -1; reason = "";
+            List<VideoTitleInfo> all = source.Where(t => t.DurationSeconds >= 600).ToList();
+            MarkCompositeTitles(all);
+            List<VideoTitleInfo> features = all.Where(t => t.DurationSeconds >= 3600 && !t.Composite)
+                .OrderByDescending(t => t.SizeBytes).ThenByDescending(t => t.DurationSeconds).ToList();
+            if (features.Count == 0) return false;
+
+            VideoTitleInfo best = features[0];
+            if (all.Count == 1)
+            {
+                titleId = best.Id; reason = "only substantial title on the disc"; return true;
+            }
+
+            List<VideoTitleInfo> competitors = features.Skip(1).ToList();
+            bool nearDuplicate = competitors.Any(t =>
+                Math.Abs(t.DurationSeconds - best.DurationSeconds) <= Math.Max(300, best.DurationSeconds * 0.10) &&
+                (best.SizeBytes <= 0 || t.SizeBytes <= 0 || t.SizeBytes >= best.SizeBytes * 0.70));
+            if (nearDuplicate) return false;
+
+            long largestOtherSize = all.Where(t => t.Id != best.Id).Select(t => t.SizeBytes).DefaultIfEmpty(0).Max();
+            int longestOtherRuntime = all.Where(t => t.Id != best.Id).Select(t => t.DurationSeconds).DefaultIfEmpty(0).Max();
+            const long OneGiB = 1073741824L;
+            bool clearSizeWinner = best.SizeBytes >= 3L * OneGiB && largestOtherSize > 0 && largestOtherSize < OneGiB && best.SizeBytes >= largestOtherSize * 3;
+            bool clearFeatureWinner = best.DurationSeconds >= 4500 &&
+                (longestOtherRuntime == 0 || best.DurationSeconds >= longestOtherRuntime * 1.50) &&
+                (largestOtherSize == 0 || best.SizeBytes == 0 || best.SizeBytes >= largestOtherSize * 1.75);
+            if (!clearSizeWinner && !clearFeatureWinner) return false;
+
+            titleId = best.Id;
+            reason = clearSizeWinner ? "one feature-sized title and all other titles are under 1 GiB" : "one title is dominant by both runtime and size";
+            return true;
+        }
+
         private static void MarkCompositeTitles(IEnumerable<VideoTitleInfo> source)
         {
             List<VideoTitleInfo> titles = source.ToList();

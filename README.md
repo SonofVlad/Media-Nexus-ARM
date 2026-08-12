@@ -14,6 +14,7 @@ Media Nexus ARM is a Windows automatic ripping machine for movies, TV series, mu
 - Provides a consolidated Settings screen with remembered Light and Dark themes
 - Provides per-drive Stop and Eject actions; Stop cancels without ejecting and resets the media type
 - Selects a probable main feature for movies instead of copying every title
+- Automatically starts clear, high-confidence movie selections while retaining the title chooser for ambiguous discs
 - Clusters similarly timed episode titles while excluding likely Play All and short extras
 - Scores TV episodes primarily by runtime and chapter similarity, detects Play All by summed runtimes, and does not reject shared segment maps
 - Supports an optional expected-episode count in the TV title confirmation screen
