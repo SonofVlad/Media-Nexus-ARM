@@ -115,7 +115,7 @@ namespace DiscRipper
 
         private void OpenSettings(object sender, EventArgs e)
         {
-            using (var dialog = new SettingsForm(ConfigureDrives, ConfigureOutputFolder, ConfigureLayout, ConfigureMediaTypes, ConfigureAudioEngine, ConfigureTheme, ConfigureBehavior, ShowDiagnostics, OpenLogs, ResetSettings))
+            using (var dialog = new SettingsForm(ConfigureDrives, ConfigureOutputFolder, ConfigureLayout, ConfigureMediaTypes, ConfigureAudioEngine, ConfigureTheme, ConfigureBehavior, ShowDiagnostics, ShowHistory, OpenLogs, ResetSettings))
                 dialog.ShowDialog(this);
         }
 
@@ -160,6 +160,7 @@ namespace DiscRipper
         }
 
         private void ShowDiagnostics(object sender, EventArgs e) { using (var dialog = new DiagnosticsForm(outputRoot, makeMkv, freac, rows.Values.ToList())) dialog.ShowDialog(DialogOwner(sender)); }
+        private void ShowHistory(object sender, EventArgs e) { using (var dialog = new HistoryForm(outputRoot)) dialog.ShowDialog(DialogOwner(sender)); }
         private void OpenLogs(object sender, EventArgs e) { OpenFolder(Path.Combine(outputRoot, "Logs")); }
         private void ResetSettings(object sender, EventArgs e)
         {
@@ -420,6 +421,7 @@ namespace DiscRipper
             row.TypeBox.Enabled = false;
             row.StopButton.Enabled = true;
             row.Cancellation = new CancellationTokenSource();
+            DateTime jobStarted = DateTime.Now;
             Task.Run(async () =>
             {
                 bool ok = false;
@@ -432,6 +434,7 @@ namespace DiscRipper
                 finally
                 {
                     bool stopped = row.StopRequested;
+                    RecordJobResult(row, kind, jobStarted, stopped ? "Stopped" : ok ? "Completed" : "Failed");
                     string ejectMode = AppSettings.LoadEjectMode();
                     bool autoEject = !stopped && (ejectMode == "Always" || (ejectMode == "Success" && ok));
                     if (autoEject) Eject(row.Letter);
@@ -455,6 +458,20 @@ namespace DiscRipper
                     });
                 }
             });
+        }
+
+        private void RecordJobResult(DriveRow row, MediaKind kind, DateTime started, string result)
+        {
+            try
+            {
+                string folder = Path.Combine(outputRoot, "Logs");
+                if (!Directory.Exists(folder)) return;
+                string driveToken = "_" + row.Letter + "_";
+                string log = Directory.GetFiles(folder, "*.log").Where(path => Path.GetFileName(path).IndexOf(driveToken, StringComparison.OrdinalIgnoreCase) >= 0 && File.GetCreationTime(path) >= started.AddSeconds(-3)).OrderByDescending(File.GetCreationTime).FirstOrDefault();
+                if (log == null) return;
+                File.AppendAllText(log, DateTime.Now.ToString("O") + "  Disc: " + SafeName(row.DiscLabel.Text) + Environment.NewLine + DateTime.Now.ToString("O") + "  Media type: " + DisplayName(kind) + Environment.NewLine + DateTime.Now.ToString("O") + "  Job result: " + result + Environment.NewLine, Encoding.UTF8);
+            }
+            catch { }
         }
 
         private async Task<bool> AnalyzeAndRip(DriveRow row, MediaKind requested, CancellationToken token)
@@ -930,14 +947,14 @@ namespace DiscRipper
 
     internal sealed class SettingsForm : Form
     {
-        public SettingsForm(EventHandler configureDrives, EventHandler configureOutput, EventHandler configureLayout, EventHandler configureMediaTypes, EventHandler configureAudio, EventHandler configureTheme, EventHandler configureBehavior, EventHandler diagnostics, EventHandler logs, EventHandler reset)
+        public SettingsForm(EventHandler configureDrives, EventHandler configureOutput, EventHandler configureLayout, EventHandler configureMediaTypes, EventHandler configureAudio, EventHandler configureTheme, EventHandler configureBehavior, EventHandler diagnostics, EventHandler history, EventHandler logs, EventHandler reset)
         {
             Text = "Media Nexus ARM - Settings"; StartPosition = FormStartPosition.CenterParent;
             Font = new Font("Segoe UI", 9F); FormBorderStyle = FormBorderStyle.FixedDialog;
-            MaximizeBox = false; MinimizeBox = false; ClientSize = new Size(590, 660);
-            var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(18), ColumnCount = 1, RowCount = 12 };
+            MaximizeBox = false; MinimizeBox = false; ClientSize = new Size(590, 710);
+            var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(18), ColumnCount = 1, RowCount = 13 };
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            for (int i = 1; i <= 10; i++) root.RowStyles.Add(new RowStyle(SizeType.Percent, 10));
+            for (int i = 1; i <= 11; i++) root.RowStyles.Add(new RowStyle(SizeType.Percent, 9));
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             root.Controls.Add(new Label { Text = "Settings", Font = new Font("Segoe UI", 15F, FontStyle.Bold), AutoSize = true, Padding = new Padding(0, 0, 0, 10) }, 0, 0);
             AddSettingButton(root, 1, "Optical Drives", "Choose which connected optical drives Media Nexus ARM manages.", configureDrives);
@@ -948,11 +965,12 @@ namespace DiscRipper
             AddSettingButton(root, 6, "Appearance", "Choose the Light or Dark application theme.", configureTheme);
             AddSettingButton(root, 7, "Completion Behavior", "Choose automatic eject behavior and completion sounds.", configureBehavior);
             AddSettingButton(root, 8, "Diagnostics and About", "Check dependencies, output storage, version, and selected drives.", diagnostics);
-            AddSettingButton(root, 9, "Logs", "Open the lightweight job-log folder.", logs);
-            AddSettingButton(root, 10, "Reset Settings", "Restore application settings to defaults.", reset);
+            AddSettingButton(root, 9, "History", "Review recent jobs using the existing log files.", history);
+            AddSettingButton(root, 10, "Logs", "Open the lightweight job-log folder.", logs);
+            AddSettingButton(root, 11, "Reset Settings", "Restore application settings to defaults.", reset);
             var closeRow = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Padding = new Padding(0, 12, 0, 0) };
             var close = new Button { Text = "Close", DialogResult = DialogResult.OK, AutoSize = true };
-            closeRow.Controls.Add(close); root.Controls.Add(closeRow, 0, 11); Controls.Add(root); AcceptButton = close; CancelButton = close;
+            closeRow.Controls.Add(close); root.Controls.Add(closeRow, 0, 12); Controls.Add(root); AcceptButton = close; CancelButton = close;
             ThemeSettings.Apply(this);
         }
 
