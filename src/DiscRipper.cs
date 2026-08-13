@@ -64,6 +64,7 @@ namespace DiscRipper
         private readonly FlowLayoutPanel toolbar = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = false, Padding = new Padding(0, 0, 0, 8) };
         private readonly TableLayoutPanel driveGrid;
         private readonly Panel driveGridFrame;
+        private readonly Panel gridHost;
         private LayoutSettings layoutSettings;
         private string outputRoot;
         private readonly string makeMkv;
@@ -92,7 +93,7 @@ namespace DiscRipper
             BuildToolbar();
             root.Controls.Add(toolbar, 0, 0);
 
-            var gridHost = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
+            gridHost = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
             driveGrid = new ThickBorderTableLayoutPanel { BorderThickness = 3, Location = new Point(0, 0), Anchor = AnchorStyles.Top | AnchorStyles.Left, AutoSize = false, BackColor = Color.FromArgb(218, 218, 218), ColumnCount = 6, RowCount = 1, CellBorderStyle = TableLayoutPanelCellBorderStyle.None, GrowStyle = TableLayoutPanelGrowStyle.FixedSize };
             driveGridFrame = new Panel { Location = new Point(0, 0), Anchor = AnchorStyles.Top | AnchorStyles.Left, BackColor = SystemColors.ControlDark, Padding = new Padding(1) };
             for (int i = 0; i < 6; i++) driveGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, layoutSettings.ColumnWidths[i]));
@@ -123,7 +124,17 @@ namespace DiscRipper
             if (next == current) return;
             ZoomSettings.Save(next);
             ZoomSettings.ApplyLive(this, current, next);
+            SynchronizeScaledGridBounds();
             footer.Text = "Interface zoom: " + next + "%  (Ctrl + mouse wheel to adjust)";
+        }
+
+        private void SynchronizeScaledGridBounds()
+        {
+            int frameWidth = driveGrid.Width + 2;
+            int frameHeight = driveGrid.Height + 2;
+            driveGridFrame.Size = new Size(frameWidth, frameHeight);
+            gridHost.AutoScrollMinSize = new Size(frameWidth + 2, frameHeight + 2);
+            driveGridFrame.Invalidate(); driveGrid.Invalidate(); gridHost.PerformLayout();
         }
 
         private void OpenSettings(object sender, EventArgs e)
