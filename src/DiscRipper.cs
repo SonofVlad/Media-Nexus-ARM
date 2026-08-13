@@ -121,12 +121,30 @@ namespace DiscRipper
             pollTimer.Tick += PollTimerOnTick;
             Shown += (s, e) => { pollTimer.Start(); PollAll(); };
             ThemeSettings.Apply(this);
+            AppSettings.CleanOldLogs(outputRoot, 30);
         }
 
         private void OpenSettings(object sender, EventArgs e)
         {
-            using (var dialog = new SettingsForm(ConfigureDrives, ConfigureOutputFolder, ConfigureLayout, ConfigureAudioEngine, ConfigureTheme))
+            using (var dialog = new SettingsForm(ConfigureDrives, ConfigureOutputFolder, ConfigureLayout, ConfigureAudioEngine, ConfigureTheme, ConfigureBehavior, ShowDiagnostics, OpenLogs, ResetSettings))
                 dialog.ShowDialog(this);
+        }
+
+        private void ConfigureBehavior(object sender, EventArgs e)
+        {
+            using (var dialog = new BehaviorSettingsForm(AppSettings.LoadEjectMode(), AppSettings.LoadSoundsEnabled()))
+            {
+                if (dialog.ShowDialog(DialogOwner(sender)) != DialogResult.OK) return;
+                AppSettings.SaveEjectMode(dialog.EjectMode); AppSettings.SaveSoundsEnabled(dialog.SoundsEnabled);
+            }
+        }
+
+        private void ShowDiagnostics(object sender, EventArgs e) { using (var dialog = new DiagnosticsForm(outputRoot, makeMkv, freac, rows.Values.ToList())) dialog.ShowDialog(DialogOwner(sender)); }
+        private void OpenLogs(object sender, EventArgs e) { OpenFolder(Path.Combine(outputRoot, "Logs")); }
+        private void ResetSettings(object sender, EventArgs e)
+        {
+            if (MessageBox.Show(DialogOwner(sender), "Reset Media Nexus ARM settings to defaults? The application must be restarted afterward.", "Media Nexus ARM", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+            AppSettings.ResetAll(); MessageBox.Show(DialogOwner(sender), "Settings were reset. Restart Media Nexus ARM to apply all defaults.", "Media Nexus ARM", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         private void ConfigureTheme(object sender, EventArgs e)
@@ -330,6 +348,9 @@ namespace DiscRipper
                 return;
             }
 
+            string outputError = AppSettings.CheckOutput(outputRoot);
+            if (outputError != null) { SetStatus(row, outputError, Color.DarkRed); return; }
+
             row.Busy = true;
             row.StopRequested = false;
             SetProgress(row, 0);
@@ -348,6 +369,10 @@ namespace DiscRipper
                 finally
                 {
                     bool stopped = row.StopRequested;
+                    string ejectMode = AppSettings.LoadEjectMode();
+                    bool autoEject = !stopped && (ejectMode == "Always" || (ejectMode == "Success" && ok));
+                    if (autoEject) Eject(row.Letter);
+                    if (!stopped) PlayCompletionSound(ok);
                     Ui(() =>
                     {
                         if (row.AwaitingChoice) { row.Busy = false; row.TypeBox.Enabled = true; return; }
@@ -358,7 +383,7 @@ namespace DiscRipper
                             row.ManualTypeSelected = false; SetType(row, MediaKind.Choose); row.StopRequested = false; return;
                         }
                         if (ok) SetProgress(row, 100);
-                        SetStatus(row, ok ? "Complete - disc remains inserted" : "Failed - disc remains inserted", ok ? Color.DarkGreen : Color.DarkRed);
+                        SetStatus(row, ok ? (autoEject ? "Complete - ejected" : "Complete - disc remains inserted") : (autoEject ? "Failed - ejected" : "Failed - disc remains inserted"), ok ? Color.DarkGreen : Color.DarkRed);
                         row.Busy = false;
                         row.TypeBox.Enabled = true;
                         row.StopButton.Enabled = false;
@@ -724,7 +749,7 @@ namespace DiscRipper
             lock (row.ProgressSync) row.LastQueuedProgress = value;
         }
         private void Ui(Action action) { if (closing || IsDisposed) return; if (InvokeRequired) BeginInvoke(action); else action(); }
-        private static void PlayCompletionSound(bool success) { if (success) SystemSounds.Asterisk.Play(); else SystemSounds.Hand.Play(); }
+        private static void PlayCompletionSound(bool success) { if (!AppSettings.LoadSoundsEnabled()) return; if (success) SystemSounds.Asterisk.Play(); else SystemSounds.Hand.Play(); }
         private const uint SemFailCriticalErrors = 0x0001;
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern bool GetVolumeInformation(string rootPath, StringBuilder volumeName, int volumeNameSize, out uint serialNumber, out uint maximumComponentLength, out uint fileSystemFlags, StringBuilder fileSystemName, int fileSystemNameSize);
@@ -783,14 +808,14 @@ namespace DiscRipper
 
     internal sealed class SettingsForm : Form
     {
-        public SettingsForm(EventHandler configureDrives, EventHandler configureOutput, EventHandler configureLayout, EventHandler configureAudio, EventHandler configureTheme)
+        public SettingsForm(EventHandler configureDrives, EventHandler configureOutput, EventHandler configureLayout, EventHandler configureAudio, EventHandler configureTheme, EventHandler configureBehavior, EventHandler diagnostics, EventHandler logs, EventHandler reset)
         {
             Text = "Media Nexus ARM - Settings"; StartPosition = FormStartPosition.CenterParent;
             Font = new Font("Segoe UI", 9F); FormBorderStyle = FormBorderStyle.FixedDialog;
-            MaximizeBox = false; MinimizeBox = false; ClientSize = new Size(560, 430);
-            var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(18), ColumnCount = 1, RowCount = 7 };
+            MaximizeBox = false; MinimizeBox = false; ClientSize = new Size(590, 610);
+            var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(18), ColumnCount = 1, RowCount = 11 };
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            for (int i = 1; i <= 5; i++) root.RowStyles.Add(new RowStyle(SizeType.Percent, 20));
+            for (int i = 1; i <= 9; i++) root.RowStyles.Add(new RowStyle(SizeType.Percent, 11));
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             root.Controls.Add(new Label { Text = "Settings", Font = new Font("Segoe UI", 15F, FontStyle.Bold), AutoSize = true, Padding = new Padding(0, 0, 0, 10) }, 0, 0);
             AddSettingButton(root, 1, "Optical Drives", "Choose which connected optical drives Media Nexus ARM manages.", configureDrives);
@@ -798,9 +823,13 @@ namespace DiscRipper
             AddSettingButton(root, 3, "Window and Columns", "Set the window dimensions and individual column widths.", configureLayout);
             AddSettingButton(root, 4, "Audio Engine", "View, install, or update the managed fre:ac audio engine.", configureAudio);
             AddSettingButton(root, 5, "Appearance", "Choose the Light or Dark application theme.", configureTheme);
+            AddSettingButton(root, 6, "Completion Behavior", "Choose automatic eject behavior and completion sounds.", configureBehavior);
+            AddSettingButton(root, 7, "Diagnostics and About", "Check dependencies, output storage, version, and selected drives.", diagnostics);
+            AddSettingButton(root, 8, "Logs", "Open the lightweight job-log folder.", logs);
+            AddSettingButton(root, 9, "Reset Settings", "Restore application settings to defaults.", reset);
             var closeRow = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Padding = new Padding(0, 12, 0, 0) };
             var close = new Button { Text = "Close", DialogResult = DialogResult.OK, AutoSize = true };
-            closeRow.Controls.Add(close); root.Controls.Add(closeRow, 0, 6); Controls.Add(root); AcceptButton = close; CancelButton = close;
+            closeRow.Controls.Add(close); root.Controls.Add(closeRow, 0, 10); Controls.Add(root); AcceptButton = close; CancelButton = close;
             ThemeSettings.Apply(this);
         }
 
@@ -833,6 +862,50 @@ namespace DiscRipper
         }
     }
 
+    internal sealed class BehaviorSettingsForm : Form
+    {
+        private readonly ComboBox eject = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
+        private readonly CheckBox sounds = new CheckBox { Text = "Play different sounds for successful and failed jobs", AutoSize = true };
+        public string EjectMode { get { string value = Convert.ToString(eject.SelectedItem); return value.StartsWith("Success") ? "Success" : value.StartsWith("All") ? "Always" : "Never"; } }
+        public bool SoundsEnabled { get { return sounds.Checked; } }
+        public BehaviorSettingsForm(string ejectMode, bool soundsEnabled)
+        {
+            Text = "Media Nexus ARM - Completion Behavior"; StartPosition = FormStartPosition.CenterParent; Font = new Font("Segoe UI", 9F); FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false; MinimizeBox = false; ClientSize = new Size(540, 230);
+            var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(16), ColumnCount = 2, RowCount = 3 };
+            root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 145)); root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            eject.Items.AddRange(new object[] { "Never eject", "Success only", "All completed jobs" }); eject.SelectedIndex = ejectMode == "Always" ? 2 : ejectMode == "Success" ? 1 : 0;
+            root.Controls.Add(new Label { Text = "Automatic eject", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, 0, 0); root.Controls.Add(eject, 1, 0);
+            sounds.Checked = soundsEnabled; root.Controls.Add(sounds, 1, 1);
+            var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Padding = new Padding(0, 14, 0, 0) };
+            var save = new Button { Text = "Save", DialogResult = DialogResult.OK, AutoSize = true }; var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true };
+            var testSuccess = new Button { Text = "Test Success", AutoSize = true }; var testFailure = new Button { Text = "Test Failure", AutoSize = true };
+            testSuccess.Click += (s, e) => SystemSounds.Asterisk.Play(); testFailure.Click += (s, e) => SystemSounds.Hand.Play();
+            buttons.Controls.Add(save); buttons.Controls.Add(cancel); buttons.Controls.Add(testFailure); buttons.Controls.Add(testSuccess); root.Controls.Add(buttons, 0, 2); root.SetColumnSpan(buttons, 2); Controls.Add(root); AcceptButton = save; CancelButton = cancel; ThemeSettings.Apply(this);
+        }
+    }
+
+    internal sealed class DiagnosticsForm : Form
+    {
+        public DiagnosticsForm(string outputRoot, string makeMkv, FreacManager freac, IList<DriveRow> rows)
+        {
+            Text = "Media Nexus ARM - Diagnostics and About"; StartPosition = FormStartPosition.CenterParent; Font = new Font("Segoe UI", 9F); Size = new Size(700, 480); MinimumSize = new Size(600, 400);
+            var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(16), RowCount = 2, ColumnCount = 1 };
+            var report = new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, WordWrap = false };
+            var lines = new List<string>();
+            lines.Add("Media Nexus ARM: " + Assembly.GetExecutingAssembly().GetName().Version);
+            lines.Add("MakeMKV: " + (File.Exists(makeMkv) ? FileVersion(makeMkv) + "  (" + makeMkv + ")" : "Not found"));
+            lines.Add("fre:ac: " + freac.InstalledVersion);
+            lines.Add("Output: " + outputRoot);
+            lines.Add("Output status: " + (AppSettings.CheckOutput(outputRoot) ?? "Writable"));
+            try { string rootPath = Path.GetPathRoot(Path.GetFullPath(outputRoot)); var drive = new DriveInfo(rootPath); lines.Add("Free space: " + (drive.AvailableFreeSpace / 1073741824.0).ToString("0.0") + " GiB"); } catch { lines.Add("Free space: unavailable (network paths may not report capacity)"); }
+            lines.Add(""); lines.Add("Selected optical drives:");
+            foreach (DriveRow row in rows.OrderBy(r => r.Letter)) lines.Add("  " + row.Letter + ":  " + row.Device + "  [" + (row.Present ? "disc present" : "empty") + "]");
+            report.Lines = lines.ToArray(); root.Controls.Add(report, 0, 0);
+            var close = new Button { Text = "Close", DialogResult = DialogResult.OK, AutoSize = true, Anchor = AnchorStyles.Right }; root.Controls.Add(close, 0, 1); Controls.Add(root); AcceptButton = close; CancelButton = close; ThemeSettings.Apply(this);
+        }
+        private static string FileVersion(string path) { try { return FileVersionInfo.GetVersionInfo(path).FileVersion ?? "Found"; } catch { return "Found"; } }
+    }
+
     internal static class ThemeSettings
     {
         private const string RegistryPath = @"Software\DiscRipper";
@@ -854,6 +927,15 @@ namespace DiscRipper
             Color fore = dark ? Color.Gainsboro : SystemColors.ControlText;
             root.BackColor = root is TextBox || root is ComboBox || root is CheckedListBox || root is DataGridView ? surface : back;
             root.ForeColor = fore;
+            var button = root as Button;
+            if (button != null && dark)
+            {
+                button.UseVisualStyleBackColor = false;
+                button.FlatStyle = FlatStyle.Flat;
+                button.BackColor = button.Enabled ? Color.FromArgb(70, 70, 74) : Color.FromArgb(56, 56, 59);
+                button.ForeColor = button.Enabled ? Color.White : Color.Silver;
+                button.FlatAppearance.BorderColor = Color.FromArgb(125, 125, 130);
+            }
             var grid = root as DataGridView;
             if (grid != null)
             {
@@ -1012,6 +1094,8 @@ namespace DiscRipper
     {
         private const string RegistryPath = @"Software\DiscRipper";
         private const string OutputValue = "OutputRoot";
+        private const string EjectValue = "EjectMode";
+        private const string SoundsValue = "CompletionSounds";
         public static string LoadOutputRoot()
         {
             try
@@ -1024,6 +1108,27 @@ namespace DiscRipper
         {
             using (var key = Registry.CurrentUser.CreateSubKey(RegistryPath)) key.SetValue(OutputValue, path, RegistryValueKind.String);
         }
+        public static string LoadEjectMode() { try { using (var key = Registry.CurrentUser.OpenSubKey(RegistryPath)) return key == null ? "Never" : Convert.ToString(key.GetValue(EjectValue, "Never")); } catch { return "Never"; } }
+        public static void SaveEjectMode(string value) { using (var key = Registry.CurrentUser.CreateSubKey(RegistryPath)) key.SetValue(EjectValue, value, RegistryValueKind.String); }
+        public static bool LoadSoundsEnabled() { try { using (var key = Registry.CurrentUser.OpenSubKey(RegistryPath)) return key == null || Convert.ToInt32(key.GetValue(SoundsValue, 1)) != 0; } catch { return true; } }
+        public static void SaveSoundsEnabled(bool value) { using (var key = Registry.CurrentUser.CreateSubKey(RegistryPath)) key.SetValue(SoundsValue, value ? 1 : 0, RegistryValueKind.DWord); }
+        public static string CheckOutput(string path)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(path)) return "Output folder is not configured";
+                Directory.CreateDirectory(path);
+                string probe = Path.Combine(path, ".media-nexus-write-test-" + Guid.NewGuid().ToString("N")); using (File.Create(probe)) { } File.Delete(probe);
+                try { string root = Path.GetPathRoot(Path.GetFullPath(path)); var drive = new DriveInfo(root); if (drive.IsReady && drive.AvailableFreeSpace < 1073741824L) return "Output has less than 1 GiB free"; } catch { }
+                return null;
+            }
+            catch { return "Output folder is unavailable or read-only"; }
+        }
+        public static void CleanOldLogs(string outputRoot, int days)
+        {
+            try { string folder = Path.Combine(outputRoot, "Logs"); if (!Directory.Exists(folder)) return; DateTime cutoff = DateTime.Now.AddDays(-days); foreach (string file in Directory.GetFiles(folder, "*.log")) if (File.GetLastWriteTime(file) < cutoff) File.Delete(file); } catch { }
+        }
+        public static void ResetAll() { try { Registry.CurrentUser.DeleteSubKeyTree(RegistryPath, false); } catch { } }
         public static string FindMakeMkv()
         {
             string[] roots = { Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles) };
