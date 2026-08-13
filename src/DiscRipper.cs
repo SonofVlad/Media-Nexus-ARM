@@ -583,7 +583,7 @@ namespace DiscRipper
                 {
                     int wholeDiscPercent = Math.Min(99, ((titlesDoneAtStart * 100) + percent) / titleIds.Count);
                     QueueProgress(row, wholeDiscPercent);
-                });
+                }, kind == MediaKind.Movie);
                 File.AppendAllText(logPath, result.Output, Encoding.UTF8);
                 bool copied = result.Output.IndexOf("Copy complete", StringComparison.OrdinalIgnoreCase) >= 0 ||
                               (result.ExitCode == 0 && Directory.GetFiles(outDir, "*.mkv").Length > filesBefore.Count);
@@ -707,7 +707,7 @@ namespace DiscRipper
         }
 
         private sealed class ProcessResult { public int ExitCode; public string Output; }
-        private static async Task<ProcessResult> RunProcess(string file, string arguments, CancellationToken token, Action<int> progress = null)
+        private static async Task<ProcessResult> RunProcess(string file, string arguments, CancellationToken token, Action<int> progress = null, bool useCurrentProgress = false)
         {
             var output = new StringBuilder();
             using (var process = new Process())
@@ -718,11 +718,11 @@ namespace DiscRipper
                     if (line == null) return;
                     lock (output) output.AppendLine(line);
                     if (progress == null) return;
-                    var match = Regex.Match(line, @"^PRGV:(\d+),(\d+),(\d+)");
+                    var match = Regex.Match(line.Trim(), @"^PRGV:(\d+),(\d+),(\d+)");
                     if (!match.Success) return;
                     long current = long.Parse(match.Groups[1].Value), total = long.Parse(match.Groups[2].Value), maximum = long.Parse(match.Groups[3].Value);
                     if (maximum <= 0) return;
-                    long value = total > 0 ? total : current;
+                    long value = useCurrentProgress ? current : (total > 0 ? total : current);
                     progress((int)Math.Max(0, Math.Min(100, value * 100 / maximum)));
                 };
                 process.OutputDataReceived += (s, e) => handleLine(e.Data);
