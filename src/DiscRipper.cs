@@ -77,7 +77,7 @@ namespace DiscRipper
             this.Icon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);
             Font = new Font("Segoe UI", 9F);
             StartPosition = FormStartPosition.CenterScreen;
-            MinimumSize = new Size(900, 470);
+            MinimumSize = new Size(854, 470);
             layoutSettings = LayoutSettings.Load();
             Size = new Size(layoutSettings.WindowWidth, layoutSettings.WindowHeight);
             FormClosing += OnClosing;
@@ -173,15 +173,23 @@ namespace DiscRipper
         private void ConfigureTheme(object sender, EventArgs e)
         {
             int originalZoom = ZoomSettings.Load();
-            using (var dialog = new ThemeSettingsForm(ThemeSettings.IsDark(), originalZoom))
+            using (var dialog = new ThemeSettingsForm(ThemeSettings.IsDark(), originalZoom, layoutSettings.WindowWidth, layoutSettings.WindowHeight))
             {
                 if (dialog.ShowDialog(DialogOwner(sender)) != DialogResult.OK) return;
                 ThemeSettings.Save(dialog.DarkMode);
                 ZoomSettings.Save(dialog.ZoomPercent);
+                int presetWidth, presetHeight;
+                bool resolutionChanged = dialog.TryGetResolution(out presetWidth, out presetHeight) &&
+                    (presetWidth != layoutSettings.WindowWidth || presetHeight != layoutSettings.WindowHeight);
+                if (resolutionChanged)
+                {
+                    layoutSettings.WindowWidth = presetWidth; layoutSettings.WindowHeight = presetHeight;
+                    layoutSettings.Save();
+                }
                 ThemeSettings.Apply(this);
                 foreach (Form open in Application.OpenForms) ThemeSettings.Apply(open);
-                if (dialog.ZoomPercent != originalZoom)
-                    MessageBox.Show(this, "The new zoom level will be applied the next time Media Nexus ARM starts.", "Media Nexus ARM", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                if (dialog.ZoomPercent != originalZoom || resolutionChanged)
+                    MessageBox.Show(this, "The new zoom and window resolution settings will be applied the next time Media Nexus ARM starts.", "Media Nexus ARM", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
         }
 
@@ -1051,22 +1059,39 @@ namespace DiscRipper
     {
         private readonly ComboBox theme = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
         private readonly ComboBox zoom = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
+        private readonly ComboBox resolution = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
         public bool DarkMode { get { return Convert.ToString(theme.SelectedItem) == "Dark"; } }
         public int ZoomPercent { get { return Convert.ToInt32(Convert.ToString(zoom.SelectedItem).TrimEnd('%')); } }
-        public ThemeSettingsForm(bool dark, int zoomPercent)
+        public ThemeSettingsForm(bool dark, int zoomPercent, int currentWidth, int currentHeight)
         {
             Text = "Media Nexus ARM - Appearance"; StartPosition = FormStartPosition.CenterParent; Font = new Font("Segoe UI", 9F);
-            FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false; MinimizeBox = false; ClientSize = new Size(420, 205);
-            var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(16), ColumnCount = 2, RowCount = 3 };
+            FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false; MinimizeBox = false; ClientSize = new Size(470, 245);
+            var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(16), ColumnCount = 2, RowCount = 4 };
             root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120)); root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             theme.Items.AddRange(new object[] { "Light", "Dark" }); theme.SelectedItem = dark ? "Dark" : "Light";
             root.Controls.Add(new Label { Text = "Color theme", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, 0, 0); root.Controls.Add(theme, 1, 0);
             zoom.Items.AddRange(new object[] { "100%", "125%", "150%", "175%", "200%" }); zoom.SelectedItem = zoomPercent + "%";
             root.Controls.Add(new Label { Text = "Interface zoom", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, 0, 1); root.Controls.Add(zoom, 1, 1);
+            string[] presets = { "480p (854 x 480)", "720p (1280 x 720)", "900p (1600 x 900)", "1080p (1920 x 1080)" };
+            resolution.Items.AddRange(presets);
+            string matching = presets.FirstOrDefault(p => p.Contains("(" + currentWidth + " x " + currentHeight + ")"));
+            if (matching == null) { matching = "Current/custom (" + currentWidth + " x " + currentHeight + ")"; resolution.Items.Insert(0, matching); }
+            resolution.SelectedItem = matching;
+            root.Controls.Add(new Label { Text = "Main window", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, 0, 2); root.Controls.Add(resolution, 1, 2);
             var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Padding = new Padding(0, 14, 0, 0) };
             var apply = new Button { Text = "Apply", DialogResult = DialogResult.OK, AutoSize = true }; var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true };
-            buttons.Controls.Add(apply); buttons.Controls.Add(cancel); root.Controls.Add(buttons, 0, 2); root.SetColumnSpan(buttons, 2); Controls.Add(root); AcceptButton = apply; CancelButton = cancel;
+            buttons.Controls.Add(apply); buttons.Controls.Add(cancel); root.Controls.Add(buttons, 0, 3); root.SetColumnSpan(buttons, 2); Controls.Add(root); AcceptButton = apply; CancelButton = cancel;
             ThemeSettings.Apply(this, dark); ZoomSettings.Apply(this);
+        }
+
+        public bool TryGetResolution(out int width, out int height)
+        {
+            string value = Convert.ToString(resolution.SelectedItem);
+            if (value.StartsWith("480p")) { width = 854; height = 480; return true; }
+            if (value.StartsWith("720p")) { width = 1280; height = 720; return true; }
+            if (value.StartsWith("900p")) { width = 1600; height = 900; return true; }
+            if (value.StartsWith("1080p")) { width = 1920; height = 1080; return true; }
+            width = 0; height = 0; return false;
         }
     }
 
@@ -1203,7 +1228,9 @@ namespace DiscRipper
             int percent = Load();
             if (percent == 100) return;
             float factor = percent / 100F;
+            Size originalSize = form.Size; Size originalMinimum = form.MinimumSize;
             form.Scale(new SizeF(factor, factor));
+            if (form is MainForm) { form.MinimumSize = originalMinimum; form.Size = originalSize; }
         }
     }
 
@@ -1222,7 +1249,7 @@ namespace DiscRipper
                 using (var key = Registry.CurrentUser.OpenSubKey(RegistryPath))
                 {
                     if (key == null) return settings;
-                    settings.WindowWidth = ReadInt(key, "WindowWidth", settings.WindowWidth, 900, 7680);
+                    settings.WindowWidth = ReadInt(key, "WindowWidth", settings.WindowWidth, 854, 7680);
                     settings.WindowHeight = ReadInt(key, "WindowHeight", settings.WindowHeight, 470, 4320);
                     for (int i = 0; i < 6; i++) settings.ColumnWidths[i] = ReadInt(key, "ColumnWidth" + i, settings.ColumnWidths[i], i == 5 ? 130 : 45, 2000);
                 }
@@ -1255,7 +1282,7 @@ namespace DiscRipper
 
     internal sealed class LayoutSettingsForm : Form
     {
-        private readonly NumericUpDown windowWidth = NewNumber(900, 7680);
+        private readonly NumericUpDown windowWidth = NewNumber(854, 7680);
         private readonly NumericUpDown windowHeight = NewNumber(470, 4320);
         private readonly NumericUpDown[] columns = new NumericUpDown[6];
         public LayoutSettings Result { get; private set; }
