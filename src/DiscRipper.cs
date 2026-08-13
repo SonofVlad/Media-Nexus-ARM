@@ -270,7 +270,7 @@ namespace DiscRipper
             statusPanel.Controls.Add(status, 0, 0); statusPanel.Controls.Add(progress, 0, 1);
             var actionPanel = new TableLayoutPanel { Anchor = AnchorStyles.Left | AnchorStyles.Right, Height = 34, ColumnCount = 2, RowCount = 1, Margin = Padding.Empty, Padding = new Padding(3, 2, 3, 2) };
             actionPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50)); actionPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-            var stop = new Button { Text = "Stop", Dock = DockStyle.Fill, Margin = new Padding(2), Enabled = false };
+            var stop = new ThemedButton { Text = "Stop", Dock = DockStyle.Fill, Margin = new Padding(2), Enabled = false };
             var eject = new Button { Text = "Eject", Dock = DockStyle.Fill, Margin = new Padding(2) };
             var item = new DriveRow { Letter = letter, Device = device, DiscLabel = discLabel, TypeBox = type, StatusLabel = status, ProgressBar = progress, EjectButton = eject, StopButton = stop };
             type.SelectedIndexChanged += (s, e) =>
@@ -836,6 +836,22 @@ namespace DiscRipper
                 if (e.Column == ColumnCount - 1) e.Graphics.FillRectangle(brush, e.CellBounds.Right - thickness, e.CellBounds.Top, thickness, e.CellBounds.Height);
                 if (e.Row == RowCount - 1) e.Graphics.FillRectangle(brush, e.CellBounds.Left, e.CellBounds.Bottom - thickness, e.CellBounds.Width, thickness);
             }
+        }
+    }
+
+    internal sealed class ThemedButton : Button
+    {
+        public ThemedButton() { FlatStyle = FlatStyle.Flat; UseVisualStyleBackColor = false; }
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            bool dark = ThemeSettings.IsDark();
+            Color background = dark ? (Enabled ? Color.FromArgb(70, 70, 74) : Color.FromArgb(56, 56, 59)) : (Enabled ? SystemColors.Control : Color.FromArgb(232, 232, 232));
+            Color foreground = dark ? Color.White : Color.Black;
+            e.Graphics.Clear(background);
+            using (var pen = new Pen(dark ? Color.FromArgb(125, 125, 130) : Color.FromArgb(120, 120, 120)))
+                e.Graphics.DrawRectangle(pen, 0, 0, Math.Max(0, ClientSize.Width - 1), Math.Max(0, ClientSize.Height - 1));
+            TextRenderer.DrawText(e.Graphics, Text, Font, ClientRectangle, foreground, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
+            if (Focused && ShowFocusCues) ControlPaint.DrawFocusRectangle(e.Graphics, Rectangle.Inflate(ClientRectangle, -3, -3), foreground, background);
         }
     }
 
