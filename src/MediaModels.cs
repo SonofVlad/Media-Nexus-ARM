@@ -3,6 +3,8 @@ using System.Collections.Generic;
 
 namespace DiscRipper
 {
+    internal enum AudioFormat { ALAC, FLAC, MP3 }
+
     internal enum DetectionConfidence { Low, Medium, High }
 
     internal sealed class DiscToc

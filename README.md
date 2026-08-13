@@ -13,7 +13,7 @@ Media Nexus ARM is a Windows automatic ripping machine for movies, TV series, mu
 - Lets users hide unused media types from both dropdowns and the Change all toolbar
 - Provides a recent-job History screen derived directly from the existing log files
 - Defaults every drive to Media Type and waits for an explicit selection
-- Provides a consolidated Settings screen with remembered Light and Dark themes
+- Provides consolidated settings with remembered Light/Dark themes, zoom presets plus Ctrl+mouse-wheel adjustment in 5% steps, and 480p/720p/900p/1080p main-window presets
 - Supports configurable automatic eject behavior and optional success/failure sounds
 - Includes lightweight diagnostics for MakeMKV, fre:ac, output storage, free space, and optical drives
 - Retains logs for 30 days and provides an Open Logs action
@@ -30,10 +30,10 @@ Media Nexus ARM is a Windows automatic ripping machine for movies, TV series, mu
 - Runs independent MakeMKV and audio jobs concurrently
 - Throttles UI rendering and avoids polling busy drives to remain responsive during multi-disc sessions
 - Downloads and validates the official portable fre:ac 1.1.7 engine on first audio rip
-- Rips audio CDs to lossless ALAC `.m4a`; iTunes is no longer used
+- Offers a remembered ALAC, FLAC, or MP3 audio format setting for both Music and Audiobooks; iTunes is no longer used
 - Calculates MusicBrainz Disc IDs directly from the physical CD TOC
 - Retrieves MusicBrainz release/track metadata and Cover Art Archive artwork
-- Embeds tags and artwork, then organizes music as `Music\Artist\Album (Year)\01 - Track.m4a`
+- Embeds tags and artwork, then organizes music as `Music\Artist\Album (Year)\01 - Track.<selected format>`
 - Preserves successful audio under `Pending Metadata` when identification is unavailable
 - Shows independent status and progress per drive; automatic eject is disabled in the current testing build
 - Allows movie and TV disc names to be edited in the drive table while ripping and uses the edited name during post-rip naming

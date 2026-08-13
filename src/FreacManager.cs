@@ -56,14 +56,16 @@ namespace DiscRipper
             finally { InstallGate.Release(); }
         }
 
-        public async Task<FreacRipResult> RipAlacAsync(string driveLetter, DiscToc toc, string destination, string coverPath, Action<int> progress, CancellationToken token)
+        public async Task<FreacRipResult> RipAudioAsync(string driveLetter, DiscToc toc, string destination, string coverPath, AudioFormat format, Action<int> progress, CancellationToken token)
         {
             Directory.CreateDirectory(destination);
             int driveIndex = GetFreacDriveIndex(driveLetter);
             if (driveIndex < 0) throw new InvalidOperationException("Could not map drive " + driveLetter + ": to a fre:ac device.");
-            var args = new List<string> { "--drive=" + driveIndex, "--track=all", "--encoder=coreaudio", "-d", Quote(destination), "--pattern=<track>" };
+            string encoder = format == AudioFormat.FLAC ? "flac" : format == AudioFormat.MP3 ? "lame" : "coreaudio";
+            string extension = format == AudioFormat.FLAC ? ".flac" : format == AudioFormat.MP3 ? ".mp3" : ".m4a";
+            var args = new List<string> { "--drive=" + driveIndex, "--track=all", "--encoder=" + encoder, "-d", Quote(destination), "--pattern=<track>" };
             if (!string.IsNullOrWhiteSpace(coverPath) && File.Exists(coverPath)) args.Add("--add-cover=" + Quote(coverPath));
-            args.Add("--"); args.Add("-f"); args.Add("ALAC");
+            if (format == AudioFormat.ALAC) { args.Add("--"); args.Add("-f"); args.Add("ALAC"); }
             int completed = 0, lastProgress = -1;
             int totalFrames = Math.Max(1, toc.LeadoutOffset - toc.TrackOffsets[0]);
             Action<int> reportTrackPercent = trackPercent =>
@@ -86,7 +88,7 @@ namespace DiscRipper
                     completed++;
                 }
             });
-            string[] files = Directory.GetFiles(destination, "*.m4a", SearchOption.TopDirectoryOnly).OrderBy(NaturalTrackOrder).ToArray();
+            string[] files = Directory.GetFiles(destination, "*" + extension, SearchOption.TopDirectoryOnly).OrderBy(NaturalTrackOrder).ToArray();
             return new FreacRipResult { ExitCode = run.ExitCode, Output = run.Output, Files = files, Success = run.ExitCode == 0 && files.Length == toc.TrackOffsets.Count };
         }
 
@@ -113,7 +115,7 @@ namespace DiscRipper
             return Task.Run(() =>
             {
                 ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
-                var request = (HttpWebRequest)WebRequest.Create(url); request.UserAgent = "Media-Nexus-ARM/0.7.2"; request.AllowAutoRedirect = true;
+                var request = (HttpWebRequest)WebRequest.Create(url); request.UserAgent = "Media-Nexus-ARM/0.7.13"; request.AllowAutoRedirect = true;
                 using (token.Register(() => request.Abort())) using (var response = request.GetResponse()) using (Stream input = response.GetResponseStream()) using (FileStream output = File.Create(target)) input.CopyTo(output);
             }, token);
         }

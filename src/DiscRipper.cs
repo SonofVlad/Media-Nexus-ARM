@@ -64,10 +64,12 @@ namespace DiscRipper
         private readonly FlowLayoutPanel toolbar = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = false, Padding = new Padding(0, 0, 0, 8) };
         private readonly TableLayoutPanel driveGrid;
         private readonly Panel driveGridFrame;
+        private readonly Panel gridHost;
         private LayoutSettings layoutSettings;
         private string outputRoot;
         private readonly string makeMkv;
         private bool closing;
+        private ZoomWheelMessageFilter zoomWheelFilter;
 
         public MainForm(List<OpticalDrive> selectedDrives, string selectedOutputRoot)
         {
@@ -77,7 +79,7 @@ namespace DiscRipper
             this.Icon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);
             Font = new Font("Segoe UI", 9F);
             StartPosition = FormStartPosition.CenterScreen;
-            MinimumSize = new Size(900, 470);
+            MinimumSize = new Size(854, 470);
             layoutSettings = LayoutSettings.Load();
             Size = new Size(layoutSettings.WindowWidth, layoutSettings.WindowHeight);
             FormClosing += OnClosing;
@@ -91,7 +93,7 @@ namespace DiscRipper
             BuildToolbar();
             root.Controls.Add(toolbar, 0, 0);
 
-            var gridHost = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
+            gridHost = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
             driveGrid = new ThickBorderTableLayoutPanel { BorderThickness = 3, Location = new Point(0, 0), Anchor = AnchorStyles.Top | AnchorStyles.Left, AutoSize = false, BackColor = Color.FromArgb(218, 218, 218), ColumnCount = 6, RowCount = 1, CellBorderStyle = TableLayoutPanelCellBorderStyle.None, GrowStyle = TableLayoutPanelGrowStyle.FixedSize };
             driveGridFrame = new Panel { Location = new Point(0, 0), Anchor = AnchorStyles.Top | AnchorStyles.Left, BackColor = SystemColors.ControlDark, Padding = new Padding(1) };
             for (int i = 0; i < 6; i++) driveGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, layoutSettings.ColumnWidths[i]));
@@ -110,7 +112,29 @@ namespace DiscRipper
             pollTimer.Tick += PollTimerOnTick;
             Shown += (s, e) => { pollTimer.Start(); PollAll(); };
             ThemeSettings.Apply(this);
+            zoomWheelFilter = new ZoomWheelMessageFilter(ChangeZoomByWheel);
+            Application.AddMessageFilter(zoomWheelFilter);
             AppSettings.CleanOldLogs(outputRoot, 30);
+        }
+
+        private void ChangeZoomByWheel(int direction)
+        {
+            int current = ZoomSettings.Load();
+            int next = Math.Max(50, Math.Min(300, current + (direction > 0 ? 5 : -5)));
+            if (next == current) return;
+            ZoomSettings.Save(next);
+            ZoomSettings.ApplyLive(this, current, next);
+            SynchronizeScaledGridBounds();
+            footer.Text = "Interface zoom: " + next + "%  (Ctrl + mouse wheel to adjust)";
+        }
+
+        private void SynchronizeScaledGridBounds()
+        {
+            int frameWidth = driveGrid.Width + 2;
+            int frameHeight = driveGrid.Height + 2;
+            driveGridFrame.Size = new Size(frameWidth, frameHeight);
+            gridHost.AutoScrollMinSize = new Size(frameWidth + 2, frameHeight + 2);
+            driveGridFrame.Invalidate(); driveGrid.Invalidate(); gridHost.PerformLayout();
         }
 
         private void OpenSettings(object sender, EventArgs e)
@@ -172,12 +196,24 @@ namespace DiscRipper
 
         private void ConfigureTheme(object sender, EventArgs e)
         {
-            using (var dialog = new ThemeSettingsForm(ThemeSettings.IsDark()))
+            int originalZoom = ZoomSettings.Load();
+            using (var dialog = new ThemeSettingsForm(ThemeSettings.IsDark(), originalZoom, layoutSettings.WindowWidth, layoutSettings.WindowHeight))
             {
                 if (dialog.ShowDialog(DialogOwner(sender)) != DialogResult.OK) return;
                 ThemeSettings.Save(dialog.DarkMode);
+                ZoomSettings.Save(dialog.ZoomPercent);
+                int presetWidth, presetHeight;
+                bool resolutionChanged = dialog.TryGetResolution(out presetWidth, out presetHeight) &&
+                    (presetWidth != layoutSettings.WindowWidth || presetHeight != layoutSettings.WindowHeight);
+                if (resolutionChanged)
+                {
+                    layoutSettings.WindowWidth = presetWidth; layoutSettings.WindowHeight = presetHeight;
+                    layoutSettings.Save();
+                }
                 ThemeSettings.Apply(this);
                 foreach (Form open in Application.OpenForms) ThemeSettings.Apply(open);
+                if (dialog.ZoomPercent != originalZoom || resolutionChanged)
+                    MessageBox.Show(this, "The new zoom and window resolution settings will be applied the next time Media Nexus ARM starts.", "Media Nexus ARM", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
         }
 
@@ -711,14 +747,15 @@ namespace DiscRipper
 
                 await freac.EnsureInstalledAsync(message => Ui(() => SetStatus(row, message, Color.Purple)), token);
                 string staging = Path.Combine(outputRoot, "Staging", "Audio", row.Letter + "_" + DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss"));
-                FreacRipResult rip = await freac.RipAlacAsync(row.Letter, toc, staging, null, p =>
+                AudioFormat audioFormat = AppSettings.LoadAudioFormat();
+                FreacRipResult rip = await freac.RipAudioAsync(row.Letter, toc, staging, null, audioFormat, p =>
                 {
                     int track = Math.Min(toc.TrackOffsets.Count, (p * toc.TrackOffsets.Count / 100) + 1);
-                    Ui(() => SetStatus(row, "Ripping ALAC track " + track + " of " + toc.TrackOffsets.Count, Color.Purple));
+                    Ui(() => SetStatus(row, "Ripping " + audioFormat + " track " + track + " of " + toc.TrackOffsets.Count, Color.Purple));
                     QueueProgress(row, p);
                 }, token);
                 log.Write(rip.Output);
-                if (!rip.Success) throw new InvalidOperationException("fre:ac did not produce the expected number of ALAC tracks. See " + log.PathName);
+                if (!rip.Success) throw new InvalidOperationException("fre:ac did not produce the expected number of " + audioFormat + " tracks. See " + log.PathName);
 
                 string result;
                 if (kind == MediaKind.Music && release != null) result = MusicOrganizer.TagAndOrganize(rip.Files, release, toc, cover, outputRoot, log.Write);
@@ -727,7 +764,7 @@ namespace DiscRipper
                 {
                     result = UniqueDiscFolder(Path.Combine(outputRoot, "Audiobooks"), SafeName(GetVolumeLabel(row.Letter)));
                     Directory.CreateDirectory(result);
-                    for (int i = 0; i < rip.Files.Length; i++) File.Copy(rip.Files[i], Path.Combine(result, string.Format("{0:00}.m4a", i + 1)), false);
+                    for (int i = 0; i < rip.Files.Length; i++) File.Copy(rip.Files[i], Path.Combine(result, string.Format("{0:00}{1}", i + 1, Path.GetExtension(rip.Files[i]))), false);
                 }
                 log.Write("Completed: " + result);
                 try { Directory.Delete(staging, true); } catch { }
@@ -888,7 +925,9 @@ namespace DiscRipper
 
         private void OnClosing(object sender, FormClosingEventArgs e)
         {
-            closing = true; pollTimer.Stop(); foreach (var row in rows.Values) if (row.Cancellation != null) row.Cancellation.Cancel();
+            closing = true; pollTimer.Stop();
+            if (zoomWheelFilter != null) Application.RemoveMessageFilter(zoomWheelFilter);
+            foreach (var row in rows.Values) if (row.Cancellation != null) row.Cancellation.Cancel();
         }
 
         private const uint GENERIC_READ = 0x80000000, FILE_SHARE_READ = 1, FILE_SHARE_WRITE = 2, OPEN_EXISTING = 3;
@@ -909,6 +948,20 @@ namespace DiscRipper
             if (h == new IntPtr(-1)) return;
             try { uint returned; DeviceIoControl(h, IOCTL_STORAGE_EJECT_MEDIA, IntPtr.Zero, 0, IntPtr.Zero, 0, out returned, IntPtr.Zero); }
             finally { CloseHandle(h); }
+        }
+    }
+
+    internal sealed class ZoomWheelMessageFilter : IMessageFilter
+    {
+        private const int WmMouseWheel = 0x020A;
+        private readonly Action<int> changeZoom;
+        public ZoomWheelMessageFilter(Action<int> action) { changeZoom = action; }
+        public bool PreFilterMessage(ref Message message)
+        {
+            if (message.Msg != WmMouseWheel || (Control.ModifierKeys & Keys.Control) != Keys.Control) return false;
+            int delta = unchecked((short)(((long)message.WParam >> 16) & 0xffff));
+            if (delta != 0) changeZoom(delta);
+            return true;
         }
     }
 
@@ -953,35 +1006,52 @@ namespace DiscRipper
         {
             Text = "Media Nexus ARM - Settings"; StartPosition = FormStartPosition.CenterParent;
             Font = new Font("Segoe UI", 9F); FormBorderStyle = FormBorderStyle.FixedDialog;
-            MaximizeBox = false; MinimizeBox = false; ClientSize = new Size(590, 660);
-            var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(18), ColumnCount = 1, RowCount = 12 };
+            MaximizeBox = false; MinimizeBox = false; ClientSize = new Size(620, 390);
+            var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(18), ColumnCount = 1, RowCount = 7 };
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            for (int i = 1; i <= 10; i++) root.RowStyles.Add(new RowStyle(SizeType.Percent, 10));
+            for (int i = 1; i <= 5; i++) root.RowStyles.Add(new RowStyle(SizeType.Absolute, 54F));
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             root.Controls.Add(new Label { Text = "Settings", Font = new Font("Segoe UI", 15F, FontStyle.Bold), AutoSize = true, Padding = new Padding(0, 0, 0, 10) }, 0, 0);
-            AddSettingButton(root, 1, "Optical Drives", "Choose which connected optical drives Media Nexus ARM manages.", configureDrives);
-            AddSettingButton(root, 2, "Output Folder", "Choose the root folder used for media, staging files, and logs.", configureOutput);
-            AddSettingButton(root, 3, "Window and Columns", "Set the window dimensions and individual column widths.", configureLayout);
-            AddSettingButton(root, 4, "Media Types", "Choose which media types appear in dropdowns and the Change all toolbar.", configureMediaTypes);
-            AddSettingButton(root, 5, "Audio Engine", "View, install, or update the managed fre:ac audio engine.", configureAudio);
-            AddSettingButton(root, 6, "Appearance", "Choose the Light or Dark application theme.", configureTheme);
-            AddSettingButton(root, 7, "Completion Behavior", "Choose automatic eject behavior and completion sounds.", configureBehavior);
-            AddSettingButton(root, 8, "Diagnostics and About", "Check dependencies, output storage, version, and selected drives.", diagnostics);
-            AddSettingButton(root, 9, "Logs", "Open the lightweight job-log folder.", logs);
-            AddSettingButton(root, 10, "Reset Settings", "Restore application settings to defaults.", reset);
-            var closeRow = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Padding = new Padding(0, 12, 0, 0) };
+            AddSettingButtons(root, 1, "Drives and Storage", "Choose the managed optical drives and the media output folder.", "Optical Drives", configureDrives, "Output Folder", configureOutput);
+            AddSettingButtons(root, 2, "Interface", "Adjust the window, table columns, and Light or Dark appearance.", "Layout", configureLayout, "Appearance", configureTheme);
+            AddSettingButtons(root, 3, "Media and Audio", "Choose visible media types, audio format, and manage the fre:ac engine.", "Media Types", configureMediaTypes, "Audio Engine", configureAudio);
+            AddSettingButton(root, 4, "Completion", "Choose automatic eject behavior and pass/fail completion sounds.", "Configure", configureBehavior);
+            AddSettingButton(root, 5, "Support", "Open the lightweight job logs for completed and failed ripping jobs.", "Open Logs", logs);
+            var closeRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, AutoSize = true, Padding = new Padding(0, 12, 0, 0) };
+            closeRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); closeRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); closeRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            var resetButton = new Button { Text = "Reset Settings", AutoSize = true, Anchor = AnchorStyles.Left };
+            var version = new Label { Text = "Media Nexus ARM  v" + Assembly.GetExecutingAssembly().GetName().Version.ToString(3), AutoSize = true, Anchor = AnchorStyles.None, TextAlign = ContentAlignment.MiddleCenter };
             var close = new Button { Text = "Close", DialogResult = DialogResult.OK, AutoSize = true };
-            closeRow.Controls.Add(close); root.Controls.Add(closeRow, 0, 11); Controls.Add(root); AcceptButton = close; CancelButton = close;
+            resetButton.Click += reset; closeRow.Controls.Add(resetButton, 0, 0); closeRow.Controls.Add(version, 1, 0); closeRow.Controls.Add(close, 2, 0);
+            root.Controls.Add(closeRow, 0, 6); Controls.Add(root); AcceptButton = close; CancelButton = close;
             ThemeSettings.Apply(this);
         }
 
-        private static void AddSettingButton(TableLayoutPanel root, int row, string title, string description, EventHandler action)
+        private static void AddSettingButton(TableLayoutPanel root, int row, string title, string description, string buttonText, EventHandler action)
         {
-            var panel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new Padding(0, 4, 0, 4) };
-            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); panel.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            var panel = CreateSettingRow();
             var text = new Label { Text = title + Environment.NewLine + description, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
-            var button = new Button { Text = "Configure", AutoSize = true, Anchor = AnchorStyles.Right };
-            button.Click += action; panel.Controls.Add(text, 0, 0); panel.Controls.Add(button, 1, 0); root.Controls.Add(panel, 0, row);
+            var button = new Button { Text = buttonText, Size = new Size(96, 28), Anchor = AnchorStyles.Right, Margin = new Padding(4, 3, 0, 3) };
+            button.Click += action; panel.Controls.Add(text, 0, 0); panel.Controls.Add(button, 2, 0); root.Controls.Add(panel, 0, row);
+        }
+
+        private static void AddSettingButtons(TableLayoutPanel root, int row, string title, string description, string firstText, EventHandler firstAction, string secondText, EventHandler secondAction)
+        {
+            var panel = CreateSettingRow();
+            var text = new Label { Text = title + Environment.NewLine + description, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
+            var first = new Button { Text = firstText, Size = new Size(92, 28), Anchor = AnchorStyles.Right, Margin = new Padding(4, 3, 4, 3) };
+            var second = new Button { Text = secondText, Size = new Size(96, 28), Anchor = AnchorStyles.Right, Margin = new Padding(4, 3, 0, 3) };
+            first.Click += firstAction; second.Click += secondAction;
+            panel.Controls.Add(text, 0, 0); panel.Controls.Add(first, 1, 0); panel.Controls.Add(second, 2, 0); root.Controls.Add(panel, 0, row);
+        }
+
+        private static TableLayoutPanel CreateSettingRow()
+        {
+            var panel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, Margin = new Padding(0, 4, 0, 4) };
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 100));
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 100));
+            return panel;
         }
     }
 
@@ -1029,19 +1099,41 @@ namespace DiscRipper
     internal sealed class ThemeSettingsForm : Form
     {
         private readonly ComboBox theme = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
+        private readonly ComboBox zoom = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
+        private readonly ComboBox resolution = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
         public bool DarkMode { get { return Convert.ToString(theme.SelectedItem) == "Dark"; } }
-        public ThemeSettingsForm(bool dark)
+        public int ZoomPercent { get { return Convert.ToInt32(Convert.ToString(zoom.SelectedItem).TrimEnd('%')); } }
+        public ThemeSettingsForm(bool dark, int zoomPercent, int currentWidth, int currentHeight)
         {
             Text = "Media Nexus ARM - Appearance"; StartPosition = FormStartPosition.CenterParent; Font = new Font("Segoe UI", 9F);
-            FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false; MinimizeBox = false; ClientSize = new Size(420, 160);
-            var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(16), ColumnCount = 2, RowCount = 2 };
+            FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false; MinimizeBox = false; ClientSize = new Size(470, 245);
+            var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(16), ColumnCount = 2, RowCount = 4 };
             root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120)); root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             theme.Items.AddRange(new object[] { "Light", "Dark" }); theme.SelectedItem = dark ? "Dark" : "Light";
             root.Controls.Add(new Label { Text = "Color theme", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, 0, 0); root.Controls.Add(theme, 1, 0);
+            zoom.Items.AddRange(new object[] { "100%", "125%", "150%", "175%", "200%" });
+            string zoomText = zoomPercent + "%"; if (!zoom.Items.Contains(zoomText)) zoom.Items.Add(zoomText); zoom.SelectedItem = zoomText;
+            root.Controls.Add(new Label { Text = "Interface zoom", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, 0, 1); root.Controls.Add(zoom, 1, 1);
+            string[] presets = { "480p (854 x 480)", "720p (1280 x 720)", "900p (1600 x 900)", "1080p (1920 x 1080)" };
+            resolution.Items.AddRange(presets);
+            string matching = presets.FirstOrDefault(p => p.Contains("(" + currentWidth + " x " + currentHeight + ")"));
+            if (matching == null) { matching = "Current/custom (" + currentWidth + " x " + currentHeight + ")"; resolution.Items.Insert(0, matching); }
+            resolution.SelectedItem = matching;
+            root.Controls.Add(new Label { Text = "Main window", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, 0, 2); root.Controls.Add(resolution, 1, 2);
             var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Padding = new Padding(0, 14, 0, 0) };
             var apply = new Button { Text = "Apply", DialogResult = DialogResult.OK, AutoSize = true }; var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true };
-            buttons.Controls.Add(apply); buttons.Controls.Add(cancel); root.Controls.Add(buttons, 0, 1); root.SetColumnSpan(buttons, 2); Controls.Add(root); AcceptButton = apply; CancelButton = cancel;
-            ThemeSettings.Apply(this, dark);
+            buttons.Controls.Add(apply); buttons.Controls.Add(cancel); root.Controls.Add(buttons, 0, 3); root.SetColumnSpan(buttons, 2); Controls.Add(root); AcceptButton = apply; CancelButton = cancel;
+            ThemeSettings.Apply(this, dark); ZoomSettings.Apply(this);
+        }
+
+        public bool TryGetResolution(out int width, out int height)
+        {
+            string value = Convert.ToString(resolution.SelectedItem);
+            if (value.StartsWith("480p")) { width = 854; height = 480; return true; }
+            if (value.StartsWith("720p")) { width = 1280; height = 720; return true; }
+            if (value.StartsWith("900p")) { width = 1600; height = 900; return true; }
+            if (value.StartsWith("1080p")) { width = 1920; height = 1080; return true; }
+            width = 0; height = 0; return false;
         }
     }
 
@@ -1078,6 +1170,7 @@ namespace DiscRipper
             lines.Add("Media Nexus ARM: " + Assembly.GetExecutingAssembly().GetName().Version);
             lines.Add("MakeMKV: " + (File.Exists(makeMkv) ? FileVersion(makeMkv) + "  (" + makeMkv + ")" : "Not found"));
             lines.Add("fre:ac: " + freac.InstalledVersion);
+            lines.Add("Audio format: " + AppSettings.LoadAudioFormat());
             lines.Add("Output: " + outputRoot);
             lines.Add("Output status: " + (AppSettings.CheckOutput(outputRoot) ?? "Writable"));
             try { string rootPath = Path.GetPathRoot(Path.GetFullPath(outputRoot)); var drive = new DriveInfo(rootPath); lines.Add("Free space: " + (drive.AvailableFreeSpace / 1073741824.0).ToString("0.0") + " GiB"); } catch { lines.Add("Free space: unavailable (network paths may not report capacity)"); }
@@ -1102,7 +1195,12 @@ namespace DiscRipper
         {
             using (var key = Registry.CurrentUser.CreateSubKey(RegistryPath)) key.SetValue(ValueName, dark ? 1 : 0, RegistryValueKind.DWord);
         }
-        public static void Apply(Control root) { Apply(root, IsDark()); }
+        public static void Apply(Control root)
+        {
+            Apply(root, IsDark());
+            var form = root as Form;
+            if (form != null) ZoomSettings.Apply(form);
+        }
         public static void Apply(Control root, bool dark)
         {
             Color back = dark ? Color.FromArgb(32, 32, 32) : SystemColors.Control;
@@ -1140,6 +1238,58 @@ namespace DiscRipper
         }
     }
 
+    internal static class ZoomSettings
+    {
+        private const string RegistryPath = @"Software\DiscRipper";
+        private const string ValueName = "InterfaceZoom";
+        private static readonly HashSet<Form> ScaledForms = new HashSet<Form>();
+
+        public static int Load()
+        {
+            try
+            {
+                using (var key = Registry.CurrentUser.OpenSubKey(RegistryPath))
+                {
+                    int value = key == null ? 100 : Convert.ToInt32(key.GetValue(ValueName, 100));
+                    return value >= 50 && value <= 300 && value % 5 == 0 ? value : 100;
+                }
+            }
+            catch { return 100; }
+        }
+
+        public static void Save(int percent)
+        {
+            if (percent < 50 || percent > 300 || percent % 5 != 0) percent = 100;
+            using (var key = Registry.CurrentUser.CreateSubKey(RegistryPath)) key.SetValue(ValueName, percent, RegistryValueKind.DWord);
+        }
+
+        public static void ApplyLive(Form form, int oldPercent, int newPercent)
+        {
+            if (form == null || oldPercent <= 0 || oldPercent == newPercent) return;
+            float factor = newPercent / (float)oldPercent;
+            Size originalSize = form.Size; Size originalMinimum = form.MinimumSize;
+            form.SuspendLayout();
+            try
+            {
+                form.Scale(new SizeF(factor, factor));
+                if (form is MainForm) { form.MinimumSize = originalMinimum; form.Size = originalSize; }
+            }
+            finally { form.ResumeLayout(true); }
+        }
+
+        public static void Apply(Form form)
+        {
+            if (form == null || ScaledForms.Contains(form)) return;
+            ScaledForms.Add(form);
+            int percent = Load();
+            if (percent == 100) return;
+            float factor = percent / 100F;
+            Size originalSize = form.Size; Size originalMinimum = form.MinimumSize;
+            form.Scale(new SizeF(factor, factor));
+            if (form is MainForm) { form.MinimumSize = originalMinimum; form.Size = originalSize; }
+        }
+    }
+
     internal sealed class LayoutSettings
     {
         private const string RegistryPath = @"Software\DiscRipper";
@@ -1155,7 +1305,7 @@ namespace DiscRipper
                 using (var key = Registry.CurrentUser.OpenSubKey(RegistryPath))
                 {
                     if (key == null) return settings;
-                    settings.WindowWidth = ReadInt(key, "WindowWidth", settings.WindowWidth, 900, 7680);
+                    settings.WindowWidth = ReadInt(key, "WindowWidth", settings.WindowWidth, 854, 7680);
                     settings.WindowHeight = ReadInt(key, "WindowHeight", settings.WindowHeight, 470, 4320);
                     for (int i = 0; i < 6; i++) settings.ColumnWidths[i] = ReadInt(key, "ColumnWidth" + i, settings.ColumnWidths[i], i == 5 ? 130 : 45, 2000);
                 }
@@ -1188,7 +1338,7 @@ namespace DiscRipper
 
     internal sealed class LayoutSettingsForm : Form
     {
-        private readonly NumericUpDown windowWidth = NewNumber(900, 7680);
+        private readonly NumericUpDown windowWidth = NewNumber(854, 7680);
         private readonly NumericUpDown windowHeight = NewNumber(470, 4320);
         private readonly NumericUpDown[] columns = new NumericUpDown[6];
         public LayoutSettings Result { get; private set; }
@@ -1289,6 +1439,7 @@ namespace DiscRipper
         private const string EjectValue = "EjectMode";
         private const string SoundsValue = "CompletionSounds";
         private const string MediaTypesValue = "EnabledMediaTypes";
+        private const string AudioFormatValue = "AudioFormat";
         public static string LoadOutputRoot()
         {
             try
@@ -1305,6 +1456,12 @@ namespace DiscRipper
         public static void SaveEjectMode(string value) { using (var key = Registry.CurrentUser.CreateSubKey(RegistryPath)) key.SetValue(EjectValue, value, RegistryValueKind.String); }
         public static bool LoadSoundsEnabled() { try { using (var key = Registry.CurrentUser.OpenSubKey(RegistryPath)) return key == null || Convert.ToInt32(key.GetValue(SoundsValue, 1)) != 0; } catch { return true; } }
         public static void SaveSoundsEnabled(bool value) { using (var key = Registry.CurrentUser.CreateSubKey(RegistryPath)) key.SetValue(SoundsValue, value ? 1 : 0, RegistryValueKind.DWord); }
+        public static AudioFormat LoadAudioFormat()
+        {
+            try { using (var key = Registry.CurrentUser.OpenSubKey(RegistryPath)) { AudioFormat value; return key != null && Enum.TryParse(Convert.ToString(key.GetValue(AudioFormatValue, "ALAC")), out value) ? value : AudioFormat.ALAC; } }
+            catch { return AudioFormat.ALAC; }
+        }
+        public static void SaveAudioFormat(AudioFormat value) { using (var key = Registry.CurrentUser.CreateSubKey(RegistryPath)) key.SetValue(AudioFormatValue, value.ToString(), RegistryValueKind.String); }
         public static HashSet<MediaKind> LoadEnabledMediaTypes()
         {
             var defaults = new HashSet<MediaKind> { MediaKind.Movie, MediaKind.TVSeries, MediaKind.Music, MediaKind.Book };
