@@ -8,36 +8,16 @@ Media Nexus ARM is a Windows automatic ripping machine for movies, TV series, mu
 
 ## Current features
 
-- Remembers any number of user-selected optical drives; tested around a seven-drive layout
-- Requires an explicit per-drive Movie / TV Series / Music / Audiobook selection before starting
-- Lets users hide unused media types from both dropdowns and the Change all toolbar
-- Provides a recent-job History screen derived directly from the existing log files
-- Defaults every drive to Media Type and waits for an explicit selection
-- Provides consolidated settings with remembered Light/Dark themes, zoom presets plus Ctrl+mouse-wheel adjustment in 5% steps, and 480p/720p/900p/1080p main-window presets
-- Supports configurable automatic eject behavior and optional success/failure sounds
-- Includes lightweight diagnostics for MakeMKV, fre:ac, output storage, free space, and optical drives
-- Retains logs for 30 days and provides an Open Logs action
-- Provides per-drive Stop and Eject actions; Stop cancels without ejecting and resets the media type
-- Selects a probable main feature for movies instead of copying every title
-- Automatically starts clear, high-confidence movie selections while retaining the title chooser for ambiguous discs
-- Clusters similarly timed episode titles while excluding likely Play All and short extras
-- Scores TV episodes primarily by runtime and chapter similarity, detects Play All by summed runtimes, and does not reject shared segment maps
-- Supports an optional expected-episode count in the TV title confirmation screen
-- Shows a pre-rip title confirmation table with runtime, size, chapters, playlist, segment map, and composite warnings
-- Detects longer composite Blu-ray playlists that contain a coherent feature playlist (including the tested Deja Vu structure)
-- Names movie folders and files from the edited disc name
-- Places TV rips in a folder matching the edited disc name while preserving MakeMKV's original episode filenames
-- Runs independent MakeMKV and audio jobs concurrently
-- Throttles UI rendering and avoids polling busy drives to remain responsive during multi-disc sessions
-- Downloads and validates the official portable fre:ac 1.1.7 engine on first audio rip
-- Offers a remembered ALAC, FLAC, or MP3 audio format setting for both Music and Audiobooks; iTunes is no longer used
-- Calculates MusicBrainz Disc IDs directly from the physical CD TOC
-- Retrieves MusicBrainz release/track metadata and Cover Art Archive artwork
-- Embeds tags and artwork, then organizes music as `Music\Artist\Album (Year)\01 - Track.<selected format>`
-- Preserves successful audio under `Pending Metadata` when identification is unavailable
-- Shows independent status and progress per drive; automatic eject is disabled in the current testing build
-- Allows movie and TV disc names to be edited in the drive table while ripping and uses the edited name during post-rip naming
-- Produces per-job logs and retains recoverable staging files when final processing fails
+- Manages any number of remembered optical drives, with independent status, progress, Stop, and Eject controls.
+- Waits for an explicit Movie, TV Series, Music, or Audiobook choice; unused types can be hidden.
+- Runs video and audio jobs concurrently while keeping the interface responsive.
+- Selects high-confidence movie features automatically and prompts when a disc is ambiguous.
+- Finds likely TV episode groups using runtime, chapter, playlist, and Play All analysis, with optional expected-episode count.
+- Uses the editable disc name for movie and TV folders; movie files are renamed while TV filenames are preserved.
+- Rips Music and Audiobooks through a managed fre:ac engine in ALAC, FLAC, or MP3.
+- Uses MusicBrainz and Cover Art Archive for music tags/artwork, retaining unidentified rips under `Pending Metadata`.
+- Includes configurable completion behavior, sounds, Light/Dark themes, layout controls, resolution presets, and 5% Ctrl+wheel zoom.
+- Provides 30-day job logs, log-backed History, and recoverable staging files when post-processing fails.
 
 ## Requirements
 
@@ -54,8 +34,7 @@ No iTunes, MusicBrainz Picard, fre:ac installation, FFmpeg, Python, or API key i
 2. Install MakeMKV.
 3. Run `Media-Nexus-ARM.exe`.
 4. Select the optical drives to manage and an output folder.
-5. Insert a disc, then select Movie, TV Series, Music, or Audiobook for that drive.
-6. Insert discs.
+5. Insert a disc and select its media type.
 
 The application is portable and does not create an installer or automatic-start entry.
 
@@ -74,11 +53,13 @@ The application is portable and does not create an installer or automatic-start 
 
 MusicBrainz or artwork failure does not discard a successful extraction. Unidentified albums are retained in `Pending Metadata`; incomplete post-processing remains in `Staging` for recovery.
 
-## Video title selection
+## Video handling
 
-After the user selects Movie or TV Series, Media Nexus ARM uses MakeMKV's title information without FFmpeg/ffprobe. Movie mode selects the longest substantial title. TV Series mode selects the similarly timed probable episode cluster while excluding short extras and a combined Play All title.
+Media Nexus ARM uses MakeMKV title information without FFmpeg. Movie mode selects a likely main feature and asks for confirmation when uncertain. TV mode finds similarly authored episodes while excluding short extras and likely Play All titles.
 
 These are conservative heuristics. Unusually authored or obfuscated discs can still require manual selection.
+
+Movie mode creates `Movies\<Disc Name>\<Disc Name>.mkv`. TV mode creates `TV Series\<Disc Name>\` and preserves MakeMKV's filenames. The Disc field can be edited while ripping.
 
 ## Settings and privacy
 
@@ -95,12 +76,6 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1
 ```
 
 The result is `dist\Media-Nexus-ARM.exe`. TagLibSharp is embedded in the executable by the build.
-
-## Video naming
-
-After ripping, Movie mode creates `Movies\<Disc Name>\<Disc Name>.mkv`. TV mode creates `TV Shows\<Disc Name>\` and preserves MakeMKV's original filenames. Edit the Disc field before the rip finishes to control the final folder name.
-
-The downloadable local IMDb search database remains a roadmap item. Movie title and year confirmation is currently user-assisted; Media Nexus does not silently invent a movie match or place database IDs in visible names.
 
 ## Third-party components
 
