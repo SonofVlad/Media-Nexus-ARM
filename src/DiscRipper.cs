@@ -61,6 +61,7 @@ namespace DiscRipper
         private readonly SemaphoreSlim makeMkvMapGate = new SemaphoreSlim(1, 1);
         private readonly ConcurrentDictionary<string, int> discIndexes = new ConcurrentDictionary<string, int>();
         private readonly Label footer = new Label();
+        private readonly FlowLayoutPanel toolbar = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = false, Padding = new Padding(0, 0, 0, 8) };
         private readonly TableLayoutPanel driveGrid;
         private readonly Panel driveGridFrame;
         private LayoutSettings layoutSettings;
@@ -87,19 +88,7 @@ namespace DiscRipper
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             Controls.Add(root);
 
-            var toolbar = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = false, Padding = new Padding(0, 0, 0, 8) };
-            toolbar.Controls.Add(new Label { Text = "Change all:", AutoSize = true, Padding = new Padding(0, 8, 6, 0) });
-            AddAllButton(toolbar, "Movie", MediaKind.Movie);
-            AddAllButton(toolbar, "TV Series", MediaKind.TVSeries);
-            AddAllButton(toolbar, "Book", MediaKind.Book);
-            AddAllButton(toolbar, "Music", MediaKind.Music);
-            AddAllButton(toolbar, "Clear", MediaKind.Choose);
-            var settingsButton = new Button { Text = "Settings", AutoSize = true, Margin = new Padding(20, 3, 3, 3) };
-            settingsButton.Click += OpenSettings;
-            toolbar.Controls.Add(settingsButton);
-            var openButton = new Button { Text = "Open Output", AutoSize = true };
-            openButton.Click += (s, e) => OpenFolder(outputRoot);
-            toolbar.Controls.Add(openButton);
+            BuildToolbar();
             root.Controls.Add(toolbar, 0, 0);
 
             var gridHost = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
@@ -126,8 +115,39 @@ namespace DiscRipper
 
         private void OpenSettings(object sender, EventArgs e)
         {
-            using (var dialog = new SettingsForm(ConfigureDrives, ConfigureOutputFolder, ConfigureLayout, ConfigureAudioEngine, ConfigureTheme, ConfigureBehavior, ShowDiagnostics, OpenLogs, ResetSettings))
+            using (var dialog = new SettingsForm(ConfigureDrives, ConfigureOutputFolder, ConfigureLayout, ConfigureMediaTypes, ConfigureAudioEngine, ConfigureTheme, ConfigureBehavior, ShowDiagnostics, OpenLogs, ResetSettings))
                 dialog.ShowDialog(this);
+        }
+
+        private void BuildToolbar()
+        {
+            toolbar.SuspendLayout(); toolbar.Controls.Clear();
+            toolbar.Controls.Add(new Label { Text = "Change all:", AutoSize = true, Padding = new Padding(0, 8, 6, 0) });
+            HashSet<MediaKind> enabled = AppSettings.LoadEnabledMediaTypes();
+            foreach (MediaKind kind in new[] { MediaKind.Movie, MediaKind.TVSeries, MediaKind.Music, MediaKind.Book })
+                if (enabled.Contains(kind)) AddAllButton(toolbar, DisplayName(kind), kind);
+            AddAllButton(toolbar, "Clear", MediaKind.Choose);
+            var settingsButton = new Button { Text = "Settings", AutoSize = true, Margin = new Padding(20, 3, 3, 3) };
+            settingsButton.Click += OpenSettings; toolbar.Controls.Add(settingsButton);
+            var openButton = new Button { Text = "Open Output", AutoSize = true };
+            openButton.Click += (s, e) => OpenFolder(outputRoot); toolbar.Controls.Add(openButton);
+            toolbar.ResumeLayout(); ThemeSettings.Apply(toolbar);
+        }
+
+        private void ConfigureMediaTypes(object sender, EventArgs e)
+        {
+            if (rows.Values.Any(r => r.Busy))
+            {
+                MessageBox.Show(this, "Wait for active rips to finish before changing available media types.", "Media Nexus ARM", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            using (var dialog = new MediaTypeSettingsForm(AppSettings.LoadEnabledMediaTypes()))
+            {
+                if (dialog.ShowDialog(DialogOwner(sender)) != DialogResult.OK) return;
+                AppSettings.SaveEnabledMediaTypes(dialog.EnabledKinds);
+                BuildToolbar();
+                foreach (DriveRow row in rows.Values) PopulateMediaTypes(row.TypeBox, row);
+            }
         }
 
         private void ConfigureBehavior(object sender, EventArgs e)
@@ -261,8 +281,7 @@ namespace DiscRipper
             var deviceLabel = new Label { Text = device, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true, Padding = new Padding(5, 0, 0, 0) };
             var discLabel = new TextBox { Text = "Empty", Anchor = AnchorStyles.Left | AnchorStyles.Right, Margin = new Padding(5, 0, 5, 0) };
             var type = new ComboBox { Anchor = AnchorStyles.Left | AnchorStyles.Right, DropDownStyle = ComboBoxStyle.DropDownList, Margin = new Padding(5, 0, 5, 0) };
-            type.Items.AddRange(new object[] { "Media Type", "Book", "Movie", "Music", "TV Series" });
-            type.SelectedIndex = 0;
+            PopulateMediaTypes(type, null);
             var status = new Label { Text = "Waiting for disc", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true, Padding = new Padding(5, 0, 0, 0) };
             var progress = new ProgressBar { Dock = DockStyle.Fill, Minimum = 0, Maximum = 100, Value = 0, Style = ProgressBarStyle.Continuous, Margin = new Padding(5, 0, 5, 4) };
             var statusPanel = new TableLayoutPanel { Anchor = AnchorStyles.Left | AnchorStyles.Right, Height = 36, BackColor = Color.Transparent, ColumnCount = 1, RowCount = 2, Margin = Padding.Empty, Padding = Padding.Empty };
@@ -301,6 +320,22 @@ namespace DiscRipper
             if (index < 0 || target < 0 || target >= ordered.Count) return;
             ordered[target].DiscLabel.Focus();
             ordered[target].DiscLabel.SelectAll();
+        }
+
+        private static void PopulateMediaTypes(ComboBox box, DriveRow row)
+        {
+            string current = Convert.ToString(box.SelectedItem);
+            HashSet<MediaKind> enabled = AppSettings.LoadEnabledMediaTypes();
+            if (row != null) row.SuppressTypeChange = true;
+            try
+            {
+                box.Items.Clear(); box.Items.Add("Media Type");
+                foreach (MediaKind kind in new[] { MediaKind.Book, MediaKind.Movie, MediaKind.Music, MediaKind.TVSeries })
+                    if (enabled.Contains(kind)) box.Items.Add(DisplayName(kind));
+                box.SelectedItem = box.Items.Contains(current) ? current : "Media Type";
+                if (row != null && Convert.ToString(box.SelectedItem) == "Media Type") row.ManualTypeSelected = false;
+            }
+            finally { if (row != null) row.SuppressTypeChange = false; }
         }
 
         private void ApplyGridGutters()
@@ -637,7 +672,7 @@ namespace DiscRipper
 
         private async Task<bool> RipAudio(DriveRow row, MediaKind kind, DiscToc toc, CancellationToken token)
         {
-            using (var log = new JobLog(outputRoot, row.Letter, kind.ToString()))
+            using (var log = new JobLog(outputRoot, row.Letter, DisplayName(kind)))
             {
                 log.Write("Audio CD: " + toc.DiscId + " / " + toc.TrackOffsets.Count + " tracks");
                 MusicRelease release = null;
@@ -762,10 +797,10 @@ namespace DiscRipper
             switch (Convert.ToString(row.TypeBox.SelectedItem))
             {
                 case "Movie": return MediaKind.Movie; case "TV Series": return MediaKind.TVSeries;
-                case "Book": return MediaKind.Book; case "Music": return MediaKind.Music; default: return MediaKind.Choose;
+                case "Audiobook": return MediaKind.Book; case "Music": return MediaKind.Music; default: return MediaKind.Choose;
             }
         }
-        private static string DisplayName(MediaKind kind) { return kind == MediaKind.TVSeries ? "TV Series" : kind == MediaKind.Choose ? "Media Type" : kind.ToString(); }
+        private static string DisplayName(MediaKind kind) { return kind == MediaKind.TVSeries ? "TV Series" : kind == MediaKind.Book ? "Audiobook" : kind == MediaKind.Choose ? "Media Type" : kind.ToString(); }
         private static void SetType(DriveRow row, MediaKind kind)
         {
             row.SuppressTypeChange = true;
@@ -895,28 +930,29 @@ namespace DiscRipper
 
     internal sealed class SettingsForm : Form
     {
-        public SettingsForm(EventHandler configureDrives, EventHandler configureOutput, EventHandler configureLayout, EventHandler configureAudio, EventHandler configureTheme, EventHandler configureBehavior, EventHandler diagnostics, EventHandler logs, EventHandler reset)
+        public SettingsForm(EventHandler configureDrives, EventHandler configureOutput, EventHandler configureLayout, EventHandler configureMediaTypes, EventHandler configureAudio, EventHandler configureTheme, EventHandler configureBehavior, EventHandler diagnostics, EventHandler logs, EventHandler reset)
         {
             Text = "Media Nexus ARM - Settings"; StartPosition = FormStartPosition.CenterParent;
             Font = new Font("Segoe UI", 9F); FormBorderStyle = FormBorderStyle.FixedDialog;
-            MaximizeBox = false; MinimizeBox = false; ClientSize = new Size(590, 610);
-            var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(18), ColumnCount = 1, RowCount = 11 };
+            MaximizeBox = false; MinimizeBox = false; ClientSize = new Size(590, 660);
+            var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(18), ColumnCount = 1, RowCount = 12 };
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            for (int i = 1; i <= 9; i++) root.RowStyles.Add(new RowStyle(SizeType.Percent, 11));
+            for (int i = 1; i <= 10; i++) root.RowStyles.Add(new RowStyle(SizeType.Percent, 10));
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             root.Controls.Add(new Label { Text = "Settings", Font = new Font("Segoe UI", 15F, FontStyle.Bold), AutoSize = true, Padding = new Padding(0, 0, 0, 10) }, 0, 0);
             AddSettingButton(root, 1, "Optical Drives", "Choose which connected optical drives Media Nexus ARM manages.", configureDrives);
             AddSettingButton(root, 2, "Output Folder", "Choose the root folder used for media, staging files, and logs.", configureOutput);
             AddSettingButton(root, 3, "Window and Columns", "Set the window dimensions and individual column widths.", configureLayout);
-            AddSettingButton(root, 4, "Audio Engine", "View, install, or update the managed fre:ac audio engine.", configureAudio);
-            AddSettingButton(root, 5, "Appearance", "Choose the Light or Dark application theme.", configureTheme);
-            AddSettingButton(root, 6, "Completion Behavior", "Choose automatic eject behavior and completion sounds.", configureBehavior);
-            AddSettingButton(root, 7, "Diagnostics and About", "Check dependencies, output storage, version, and selected drives.", diagnostics);
-            AddSettingButton(root, 8, "Logs", "Open the lightweight job-log folder.", logs);
-            AddSettingButton(root, 9, "Reset Settings", "Restore application settings to defaults.", reset);
+            AddSettingButton(root, 4, "Media Types", "Choose which media types appear in dropdowns and the Change all toolbar.", configureMediaTypes);
+            AddSettingButton(root, 5, "Audio Engine", "View, install, or update the managed fre:ac audio engine.", configureAudio);
+            AddSettingButton(root, 6, "Appearance", "Choose the Light or Dark application theme.", configureTheme);
+            AddSettingButton(root, 7, "Completion Behavior", "Choose automatic eject behavior and completion sounds.", configureBehavior);
+            AddSettingButton(root, 8, "Diagnostics and About", "Check dependencies, output storage, version, and selected drives.", diagnostics);
+            AddSettingButton(root, 9, "Logs", "Open the lightweight job-log folder.", logs);
+            AddSettingButton(root, 10, "Reset Settings", "Restore application settings to defaults.", reset);
             var closeRow = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Padding = new Padding(0, 12, 0, 0) };
             var close = new Button { Text = "Close", DialogResult = DialogResult.OK, AutoSize = true };
-            closeRow.Controls.Add(close); root.Controls.Add(closeRow, 0, 10); Controls.Add(root); AcceptButton = close; CancelButton = close;
+            closeRow.Controls.Add(close); root.Controls.Add(closeRow, 0, 11); Controls.Add(root); AcceptButton = close; CancelButton = close;
             ThemeSettings.Apply(this);
         }
 
@@ -927,6 +963,47 @@ namespace DiscRipper
             var text = new Label { Text = title + Environment.NewLine + description, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
             var button = new Button { Text = "Configure", AutoSize = true, Anchor = AnchorStyles.Right };
             button.Click += action; panel.Controls.Add(text, 0, 0); panel.Controls.Add(button, 1, 0); root.Controls.Add(panel, 0, row);
+        }
+    }
+
+    internal sealed class MediaTypeSettingsForm : Form
+    {
+        private readonly CheckedListBox types = new CheckedListBox { Dock = DockStyle.Fill, CheckOnClick = true };
+        public HashSet<MediaKind> EnabledKinds { get; private set; }
+        public MediaTypeSettingsForm(ISet<MediaKind> enabled)
+        {
+            Text = "Media Nexus ARM - Media Types"; StartPosition = FormStartPosition.CenterParent; Font = new Font("Segoe UI", 9F);
+            FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false; MinimizeBox = false; ClientSize = new Size(430, 275);
+            var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(16), ColumnCount = 1, RowCount = 3 };
+            root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); root.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            root.Controls.Add(new Label { Text = "Select the media types you want shown. At least one must remain enabled.", AutoSize = true, Padding = new Padding(0, 0, 0, 10) }, 0, 0);
+            foreach (MediaKind kind in new[] { MediaKind.Book, MediaKind.Movie, MediaKind.Music, MediaKind.TVSeries }) types.Items.Add(MainFormMediaNames.Display(kind), enabled.Contains(kind));
+            root.Controls.Add(types, 0, 1);
+            var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Padding = new Padding(0, 12, 0, 0) };
+            var save = new Button { Text = "Save", AutoSize = true }; var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true };
+            save.Click += SaveClicked; buttons.Controls.Add(save); buttons.Controls.Add(cancel); root.Controls.Add(buttons, 0, 2);
+            Controls.Add(root); AcceptButton = save; CancelButton = cancel; ThemeSettings.Apply(this);
+        }
+        private void SaveClicked(object sender, EventArgs e)
+        {
+            if (types.CheckedItems.Count == 0) { MessageBox.Show(this, "Keep at least one media type enabled.", "Media Nexus ARM", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
+            EnabledKinds = new HashSet<MediaKind>();
+            foreach (object item in types.CheckedItems)
+            {
+                MediaKind kind; if (MainFormMediaNames.TryParse(Convert.ToString(item), out kind)) EnabledKinds.Add(kind);
+            }
+            DialogResult = DialogResult.OK; Close();
+        }
+    }
+
+    internal static class MainFormMediaNames
+    {
+        public static string Display(MediaKind kind) { return kind == MediaKind.Book ? "Audiobook" : kind == MediaKind.TVSeries ? "TV Series" : kind.ToString(); }
+        public static bool TryParse(string text, out MediaKind kind)
+        {
+            if (text == "Audiobook" || text == "Book") { kind = MediaKind.Book; return true; }
+            if (text == "TV Series") { kind = MediaKind.TVSeries; return true; }
+            return Enum.TryParse(text, out kind) && kind != MediaKind.Choose;
         }
     }
 
@@ -1192,6 +1269,7 @@ namespace DiscRipper
         private const string OutputValue = "OutputRoot";
         private const string EjectValue = "EjectMode";
         private const string SoundsValue = "CompletionSounds";
+        private const string MediaTypesValue = "EnabledMediaTypes";
         public static string LoadOutputRoot()
         {
             try
@@ -1208,6 +1286,29 @@ namespace DiscRipper
         public static void SaveEjectMode(string value) { using (var key = Registry.CurrentUser.CreateSubKey(RegistryPath)) key.SetValue(EjectValue, value, RegistryValueKind.String); }
         public static bool LoadSoundsEnabled() { try { using (var key = Registry.CurrentUser.OpenSubKey(RegistryPath)) return key == null || Convert.ToInt32(key.GetValue(SoundsValue, 1)) != 0; } catch { return true; } }
         public static void SaveSoundsEnabled(bool value) { using (var key = Registry.CurrentUser.CreateSubKey(RegistryPath)) key.SetValue(SoundsValue, value ? 1 : 0, RegistryValueKind.DWord); }
+        public static HashSet<MediaKind> LoadEnabledMediaTypes()
+        {
+            var defaults = new HashSet<MediaKind> { MediaKind.Movie, MediaKind.TVSeries, MediaKind.Music, MediaKind.Book };
+            try
+            {
+                using (var key = Registry.CurrentUser.OpenSubKey(RegistryPath))
+                {
+                    if (key == null) return defaults;
+                    string[] values = key.GetValue(MediaTypesValue) as string[];
+                    if (values == null) return defaults;
+                    var result = new HashSet<MediaKind>();
+                    foreach (string value in values) { MediaKind kind; if (MainFormMediaNames.TryParse(value, out kind)) result.Add(kind); }
+                    return result.Count > 0 ? result : defaults;
+                }
+            }
+            catch { return defaults; }
+        }
+        public static void SaveEnabledMediaTypes(IEnumerable<MediaKind> kinds)
+        {
+            string[] values = kinds.Distinct().Select(MainFormMediaNames.Display).ToArray();
+            if (values.Length == 0) throw new ArgumentException("At least one media type must remain enabled.");
+            using (var key = Registry.CurrentUser.CreateSubKey(RegistryPath)) key.SetValue(MediaTypesValue, values, RegistryValueKind.MultiString);
+        }
         public static string CheckOutput(string path)
         {
             try
