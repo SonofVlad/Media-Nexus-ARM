@@ -12,6 +12,7 @@ namespace DiscRipper
         private readonly Label latest = new Label();
         private readonly Label status = new Label();
         private readonly Button install = new Button();
+        private readonly ComboBox format = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 150 };
 
         public FreacStatusForm(FreacManager manager)
         {
@@ -21,18 +22,21 @@ namespace DiscRipper
             Font = new Font("Segoe UI", 9F);
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false; MinimizeBox = false;
-            ClientSize = new Size(450, 220);
-            var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(16), ColumnCount = 2, RowCount = 5 };
+            ClientSize = new Size(450, 270);
+            var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(16), ColumnCount = 2, RowCount = 6 };
             root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 135)); root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             AddRow(root, 0, "Engine", new Label { Text = "fre:ac portable (stable)", AutoSize = true });
             AddRow(root, 1, "Installed", installed);
             AddRow(root, 2, "Latest stable", latest);
             AddRow(root, 3, "Status", status);
+            format.Items.AddRange(new object[] { "ALAC", "FLAC", "MP3" }); format.SelectedItem = AppSettings.LoadAudioFormat().ToString();
+            AddRow(root, 4, "Audio format", format);
             var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Padding = new Padding(0, 12, 0, 0) };
-            var close = new Button { Text = "Close", DialogResult = DialogResult.Cancel, AutoSize = true };
+            var save = new Button { Text = "Save", AutoSize = true }; var close = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true };
+            save.Click += (s, e) => { AppSettings.SaveAudioFormat((AudioFormat)Enum.Parse(typeof(AudioFormat), Convert.ToString(format.SelectedItem))); DialogResult = DialogResult.OK; Close(); };
             install.AutoSize = true; install.Click += InstallClicked;
-            buttons.Controls.Add(close); buttons.Controls.Add(install); root.Controls.Add(buttons, 0, 4); root.SetColumnSpan(buttons, 2);
-            Controls.Add(root); CancelButton = close; ThemeSettings.Apply(this); RefreshStatus();
+            buttons.Controls.Add(save); buttons.Controls.Add(close); buttons.Controls.Add(install); root.Controls.Add(buttons, 0, 5); root.SetColumnSpan(buttons, 2);
+            Controls.Add(root); AcceptButton = save; CancelButton = close; ThemeSettings.Apply(this); RefreshStatus();
         }
 
         private static void AddRow(TableLayoutPanel panel, int row, string name, Control value)

@@ -22,9 +22,10 @@ namespace DiscRipper
             for (int i = 0; i < rippedFiles.Length; i++)
             {
                 MusicTrack track = release.Tracks[i];
-                string fileName = string.Format("{0:00} - {1}.m4a", track.Number, SafeName(track.Title));
+                string extension = Path.GetExtension(rippedFiles[i]);
+                string fileName = string.Format("{0:00} - {1}{2}", track.Number, SafeName(track.Title), extension);
                 string target = UniquePath(Path.Combine(albumFolder, fileName));
-                string partial = target + ".partial.m4a";
+                string partial = Path.Combine(Path.GetDirectoryName(target), Path.GetFileNameWithoutExtension(target) + ".partial" + extension);
                 File.Copy(rippedFiles[i], partial, false);
                 if (!File.Exists(partial) || new FileInfo(partial).Length == 0) throw new IOException("Failed to verify copied audio track " + fileName);
                 WriteTags(partial, release, track, toc, year, cover);
@@ -41,7 +42,7 @@ namespace DiscRipper
             Directory.CreateDirectory(folder);
             for (int i = 0; i < rippedFiles.Length; i++)
             {
-                string target = Path.Combine(folder, string.Format("{0:00}.m4a", i + 1));
+                string target = Path.Combine(folder, string.Format("{0:00}{1}", i + 1, Path.GetExtension(rippedFiles[i])));
                 File.Copy(rippedFiles[i], target, false);
                 if (!File.Exists(target) || new FileInfo(target).Length == 0) throw new IOException("Failed to preserve pending audio track.");
                 if (log != null) log(Path.GetFileName(rippedFiles[i]) + " -> " + target);

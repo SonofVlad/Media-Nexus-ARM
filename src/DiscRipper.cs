@@ -711,14 +711,15 @@ namespace DiscRipper
 
                 await freac.EnsureInstalledAsync(message => Ui(() => SetStatus(row, message, Color.Purple)), token);
                 string staging = Path.Combine(outputRoot, "Staging", "Audio", row.Letter + "_" + DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss"));
-                FreacRipResult rip = await freac.RipAlacAsync(row.Letter, toc, staging, null, p =>
+                AudioFormat audioFormat = AppSettings.LoadAudioFormat();
+                FreacRipResult rip = await freac.RipAudioAsync(row.Letter, toc, staging, null, audioFormat, p =>
                 {
                     int track = Math.Min(toc.TrackOffsets.Count, (p * toc.TrackOffsets.Count / 100) + 1);
-                    Ui(() => SetStatus(row, "Ripping ALAC track " + track + " of " + toc.TrackOffsets.Count, Color.Purple));
+                    Ui(() => SetStatus(row, "Ripping " + audioFormat + " track " + track + " of " + toc.TrackOffsets.Count, Color.Purple));
                     QueueProgress(row, p);
                 }, token);
                 log.Write(rip.Output);
-                if (!rip.Success) throw new InvalidOperationException("fre:ac did not produce the expected number of ALAC tracks. See " + log.PathName);
+                if (!rip.Success) throw new InvalidOperationException("fre:ac did not produce the expected number of " + audioFormat + " tracks. See " + log.PathName);
 
                 string result;
                 if (kind == MediaKind.Music && release != null) result = MusicOrganizer.TagAndOrganize(rip.Files, release, toc, cover, outputRoot, log.Write);
@@ -727,7 +728,7 @@ namespace DiscRipper
                 {
                     result = UniqueDiscFolder(Path.Combine(outputRoot, "Audiobooks"), SafeName(GetVolumeLabel(row.Letter)));
                     Directory.CreateDirectory(result);
-                    for (int i = 0; i < rip.Files.Length; i++) File.Copy(rip.Files[i], Path.Combine(result, string.Format("{0:00}.m4a", i + 1)), false);
+                    for (int i = 0; i < rip.Files.Length; i++) File.Copy(rip.Files[i], Path.Combine(result, string.Format("{0:00}{1}", i + 1, Path.GetExtension(rip.Files[i]))), false);
                 }
                 log.Write("Completed: " + result);
                 try { Directory.Delete(staging, true); } catch { }
@@ -1078,6 +1079,7 @@ namespace DiscRipper
             lines.Add("Media Nexus ARM: " + Assembly.GetExecutingAssembly().GetName().Version);
             lines.Add("MakeMKV: " + (File.Exists(makeMkv) ? FileVersion(makeMkv) + "  (" + makeMkv + ")" : "Not found"));
             lines.Add("fre:ac: " + freac.InstalledVersion);
+            lines.Add("Audio format: " + AppSettings.LoadAudioFormat());
             lines.Add("Output: " + outputRoot);
             lines.Add("Output status: " + (AppSettings.CheckOutput(outputRoot) ?? "Writable"));
             try { string rootPath = Path.GetPathRoot(Path.GetFullPath(outputRoot)); var drive = new DriveInfo(rootPath); lines.Add("Free space: " + (drive.AvailableFreeSpace / 1073741824.0).ToString("0.0") + " GiB"); } catch { lines.Add("Free space: unavailable (network paths may not report capacity)"); }
@@ -1289,6 +1291,7 @@ namespace DiscRipper
         private const string EjectValue = "EjectMode";
         private const string SoundsValue = "CompletionSounds";
         private const string MediaTypesValue = "EnabledMediaTypes";
+        private const string AudioFormatValue = "AudioFormat";
         public static string LoadOutputRoot()
         {
             try
@@ -1305,6 +1308,12 @@ namespace DiscRipper
         public static void SaveEjectMode(string value) { using (var key = Registry.CurrentUser.CreateSubKey(RegistryPath)) key.SetValue(EjectValue, value, RegistryValueKind.String); }
         public static bool LoadSoundsEnabled() { try { using (var key = Registry.CurrentUser.OpenSubKey(RegistryPath)) return key == null || Convert.ToInt32(key.GetValue(SoundsValue, 1)) != 0; } catch { return true; } }
         public static void SaveSoundsEnabled(bool value) { using (var key = Registry.CurrentUser.CreateSubKey(RegistryPath)) key.SetValue(SoundsValue, value ? 1 : 0, RegistryValueKind.DWord); }
+        public static AudioFormat LoadAudioFormat()
+        {
+            try { using (var key = Registry.CurrentUser.OpenSubKey(RegistryPath)) { AudioFormat value; return key != null && Enum.TryParse(Convert.ToString(key.GetValue(AudioFormatValue, "ALAC")), out value) ? value : AudioFormat.ALAC; } }
+            catch { return AudioFormat.ALAC; }
+        }
+        public static void SaveAudioFormat(AudioFormat value) { using (var key = Registry.CurrentUser.CreateSubKey(RegistryPath)) key.SetValue(AudioFormatValue, value.ToString(), RegistryValueKind.String); }
         public static HashSet<MediaKind> LoadEnabledMediaTypes()
         {
             var defaults = new HashSet<MediaKind> { MediaKind.Movie, MediaKind.TVSeries, MediaKind.Music, MediaKind.Book };
