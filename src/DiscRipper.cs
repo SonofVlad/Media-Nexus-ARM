@@ -954,21 +954,23 @@ namespace DiscRipper
         {
             Text = "Media Nexus ARM - Settings"; StartPosition = FormStartPosition.CenterParent;
             Font = new Font("Segoe UI", 9F); FormBorderStyle = FormBorderStyle.FixedDialog;
-            MaximizeBox = false; MinimizeBox = false; ClientSize = new Size(620, 550);
-            var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(18), ColumnCount = 1, RowCount = 8 };
+            MaximizeBox = false; MinimizeBox = false; ClientSize = new Size(620, 500);
+            var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(18), ColumnCount = 1, RowCount = 7 };
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            for (int i = 1; i <= 6; i++) root.RowStyles.Add(new RowStyle(SizeType.Percent, 16.666F));
+            for (int i = 1; i <= 5; i++) root.RowStyles.Add(new RowStyle(SizeType.Percent, 20F));
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             root.Controls.Add(new Label { Text = "Settings", Font = new Font("Segoe UI", 15F, FontStyle.Bold), AutoSize = true, Padding = new Padding(0, 0, 0, 10) }, 0, 0);
-            AddSettingButton(root, 1, "Optical Drives", "Choose which connected optical drives Media Nexus ARM manages.", "Configure", configureDrives);
-            AddSettingButtons(root, 2, "Storage", "Choose the media output location or open its lightweight job logs.", "Output Folder", configureOutput, "Open Logs", logs);
-            AddSettingButtons(root, 3, "Interface", "Adjust the window, table columns, and Light or Dark appearance.", "Layout", configureLayout, "Appearance", configureTheme);
-            AddSettingButtons(root, 4, "Media and Audio", "Choose visible media types, audio format, and manage the fre:ac engine.", "Media Types", configureMediaTypes, "Audio Engine", configureAudio);
-            AddSettingButton(root, 5, "Completion", "Choose automatic eject behavior and pass/fail completion sounds.", "Configure", configureBehavior);
-            AddSettingButtons(root, 6, "Support", "Check the installation and version, or restore all settings to defaults.", "Diagnostics", diagnostics, "Reset", reset);
-            var closeRow = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Padding = new Padding(0, 12, 0, 0) };
+            AddSettingButtons(root, 1, "Drives and Storage", "Choose the managed optical drives and the media output folder.", "Optical Drives", configureDrives, "Output Folder", configureOutput);
+            AddSettingButtons(root, 2, "Interface", "Adjust the window, table columns, and Light or Dark appearance.", "Layout", configureLayout, "Appearance", configureTheme);
+            AddSettingButtons(root, 3, "Media and Audio", "Choose visible media types, audio format, and manage the fre:ac engine.", "Media Types", configureMediaTypes, "Audio Engine", configureAudio);
+            AddSettingButton(root, 4, "Completion", "Choose automatic eject behavior and pass/fail completion sounds.", "Configure", configureBehavior);
+            AddSettingButtons(root, 5, "Support", "Check the installation and version, or open the lightweight job logs.", "Diagnostics", diagnostics, "Open Logs", logs);
+            var closeRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, AutoSize = true, Padding = new Padding(0, 12, 0, 0) };
+            closeRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); closeRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            var resetButton = new Button { Text = "Reset Settings", AutoSize = true, Anchor = AnchorStyles.Left };
             var close = new Button { Text = "Close", DialogResult = DialogResult.OK, AutoSize = true };
-            closeRow.Controls.Add(close); root.Controls.Add(closeRow, 0, 7); Controls.Add(root); AcceptButton = close; CancelButton = close;
+            resetButton.Click += reset; closeRow.Controls.Add(resetButton, 0, 0); closeRow.Controls.Add(close, 1, 0);
+            root.Controls.Add(closeRow, 0, 6); Controls.Add(root); AcceptButton = close; CancelButton = close;
             ThemeSettings.Apply(this);
         }
 
