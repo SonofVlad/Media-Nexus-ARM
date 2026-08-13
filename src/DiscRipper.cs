@@ -954,35 +954,43 @@ namespace DiscRipper
         {
             Text = "Media Nexus ARM - Settings"; StartPosition = FormStartPosition.CenterParent;
             Font = new Font("Segoe UI", 9F); FormBorderStyle = FormBorderStyle.FixedDialog;
-            MaximizeBox = false; MinimizeBox = false; ClientSize = new Size(590, 660);
-            var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(18), ColumnCount = 1, RowCount = 12 };
+            MaximizeBox = false; MinimizeBox = false; ClientSize = new Size(620, 610);
+            var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(18), ColumnCount = 1, RowCount = 9 };
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            for (int i = 1; i <= 10; i++) root.RowStyles.Add(new RowStyle(SizeType.Percent, 10));
+            for (int i = 1; i <= 7; i++) root.RowStyles.Add(new RowStyle(SizeType.Percent, 14.285F));
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             root.Controls.Add(new Label { Text = "Settings", Font = new Font("Segoe UI", 15F, FontStyle.Bold), AutoSize = true, Padding = new Padding(0, 0, 0, 10) }, 0, 0);
-            AddSettingButton(root, 1, "Optical Drives", "Choose which connected optical drives Media Nexus ARM manages.", configureDrives);
-            AddSettingButton(root, 2, "Output Folder", "Choose the root folder used for media, staging files, and logs.", configureOutput);
-            AddSettingButton(root, 3, "Window and Columns", "Set the window dimensions and individual column widths.", configureLayout);
-            AddSettingButton(root, 4, "Media Types", "Choose which media types appear in dropdowns and the Change all toolbar.", configureMediaTypes);
-            AddSettingButton(root, 5, "Audio Engine", "View, install, or update the managed fre:ac audio engine.", configureAudio);
-            AddSettingButton(root, 6, "Appearance", "Choose the Light or Dark application theme.", configureTheme);
-            AddSettingButton(root, 7, "Completion Behavior", "Choose automatic eject behavior and completion sounds.", configureBehavior);
-            AddSettingButton(root, 8, "Diagnostics and About", "Check dependencies, output storage, version, and selected drives.", diagnostics);
-            AddSettingButton(root, 9, "Logs", "Open the lightweight job-log folder.", logs);
-            AddSettingButton(root, 10, "Reset Settings", "Restore application settings to defaults.", reset);
+            AddSettingButton(root, 1, "Optical Drives", "Choose which connected optical drives Media Nexus ARM manages.", "Configure", configureDrives);
+            AddSettingButtons(root, 2, "Storage", "Choose the media output location or open its lightweight job logs.", "Output Folder", configureOutput, "Open Logs", logs);
+            AddSettingButtons(root, 3, "Interface", "Adjust the window, table columns, and Light or Dark appearance.", "Layout", configureLayout, "Appearance", configureTheme);
+            AddSettingButton(root, 4, "Media Types", "Choose which media types appear in dropdowns and the Change all toolbar.", "Configure", configureMediaTypes);
+            AddSettingButton(root, 5, "Audio Engine", "Choose ALAC, FLAC, or MP3 and manage the fre:ac audio engine.", "Configure", configureAudio);
+            AddSettingButton(root, 6, "Completion", "Choose automatic eject behavior and pass/fail completion sounds.", "Configure", configureBehavior);
+            AddSettingButtons(root, 7, "Support", "Check the installation and version, or restore all settings to defaults.", "Diagnostics", diagnostics, "Reset", reset);
             var closeRow = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Padding = new Padding(0, 12, 0, 0) };
             var close = new Button { Text = "Close", DialogResult = DialogResult.OK, AutoSize = true };
-            closeRow.Controls.Add(close); root.Controls.Add(closeRow, 0, 11); Controls.Add(root); AcceptButton = close; CancelButton = close;
+            closeRow.Controls.Add(close); root.Controls.Add(closeRow, 0, 8); Controls.Add(root); AcceptButton = close; CancelButton = close;
             ThemeSettings.Apply(this);
         }
 
-        private static void AddSettingButton(TableLayoutPanel root, int row, string title, string description, EventHandler action)
+        private static void AddSettingButton(TableLayoutPanel root, int row, string title, string description, string buttonText, EventHandler action)
         {
             var panel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new Padding(0, 4, 0, 4) };
             panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); panel.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             var text = new Label { Text = title + Environment.NewLine + description, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
-            var button = new Button { Text = "Configure", AutoSize = true, Anchor = AnchorStyles.Right };
+            var button = new Button { Text = buttonText, AutoSize = true, Anchor = AnchorStyles.Right };
             button.Click += action; panel.Controls.Add(text, 0, 0); panel.Controls.Add(button, 1, 0); root.Controls.Add(panel, 0, row);
+        }
+
+        private static void AddSettingButtons(TableLayoutPanel root, int row, string title, string description, string firstText, EventHandler firstAction, string secondText, EventHandler secondAction)
+        {
+            var panel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new Padding(0, 4, 0, 4) };
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); panel.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            var text = new Label { Text = title + Environment.NewLine + description, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
+            var buttons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, FlowDirection = FlowDirection.LeftToRight, Anchor = AnchorStyles.Right };
+            var first = new Button { Text = firstText, AutoSize = true }; var second = new Button { Text = secondText, AutoSize = true };
+            first.Click += firstAction; second.Click += secondAction; buttons.Controls.Add(first); buttons.Controls.Add(second);
+            panel.Controls.Add(text, 0, 0); panel.Controls.Add(buttons, 1, 0); root.Controls.Add(panel, 0, row);
         }
     }
 
