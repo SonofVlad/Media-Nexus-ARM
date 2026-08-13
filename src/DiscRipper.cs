@@ -259,16 +259,16 @@ namespace DiscRipper
             grid.RowStyles.Add(new RowStyle(SizeType.Absolute, GridRowHeight));
             var driveLabel = new Label { Text = letter + ":", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, Font = new Font("Segoe UI", 10F, FontStyle.Bold) };
             var deviceLabel = new Label { Text = device, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true, Padding = new Padding(5, 0, 0, 0) };
-            var discLabel = new TextBox { Text = "Empty", Dock = DockStyle.Fill, Margin = new Padding(5, 9, 5, 5) };
-            var type = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, Margin = new Padding(5, 9, 5, 5) };
+            var discLabel = new TextBox { Text = "Empty", Anchor = AnchorStyles.Left | AnchorStyles.Right, Margin = new Padding(5, 0, 5, 0) };
+            var type = new ComboBox { Anchor = AnchorStyles.Left | AnchorStyles.Right, DropDownStyle = ComboBoxStyle.DropDownList, Margin = new Padding(5, 0, 5, 0) };
             type.Items.AddRange(new object[] { "Media Type", "Book", "Movie", "Music", "TV Series" });
             type.SelectedIndex = 0;
             var status = new Label { Text = "Waiting for disc", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true, Padding = new Padding(5, 0, 0, 0) };
             var progress = new ProgressBar { Dock = DockStyle.Fill, Minimum = 0, Maximum = 100, Value = 0, Style = ProgressBarStyle.Continuous, Margin = new Padding(5, 0, 5, 4) };
-            var statusPanel = new TableLayoutPanel { Dock = DockStyle.Fill, BackColor = Color.Transparent, ColumnCount = 1, RowCount = 2, Margin = Padding.Empty, Padding = Padding.Empty };
+            var statusPanel = new TableLayoutPanel { Anchor = AnchorStyles.Left | AnchorStyles.Right, Height = 36, BackColor = Color.Transparent, ColumnCount = 1, RowCount = 2, Margin = Padding.Empty, Padding = Padding.Empty };
             statusPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 62)); statusPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 38));
             statusPanel.Controls.Add(status, 0, 0); statusPanel.Controls.Add(progress, 0, 1);
-            var actionPanel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = Padding.Empty, Padding = new Padding(3, 6, 3, 5) };
+            var actionPanel = new TableLayoutPanel { Anchor = AnchorStyles.Left | AnchorStyles.Right, Height = 34, ColumnCount = 2, RowCount = 1, Margin = Padding.Empty, Padding = new Padding(3, 2, 3, 2) };
             actionPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50)); actionPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
             var stop = new Button { Text = "Stop", Dock = DockStyle.Fill, Margin = new Padding(2), Enabled = false };
             var eject = new Button { Text = "Eject", Dock = DockStyle.Fill, Margin = new Padding(2) };
@@ -295,6 +295,8 @@ namespace DiscRipper
             {
                 TableLayoutPanelCellPosition position = driveGrid.GetPositionFromControl(control);
                 control.Margin = new Padding(line, line, position.Column == driveGrid.ColumnCount - 1 ? line : 0, position.Row == driveGrid.RowCount - 1 ? line : 0);
+                if (control is TextBox || control is ComboBox)
+                    control.Anchor = AnchorStyles.Left | AnchorStyles.Right;
             }
         }
 
