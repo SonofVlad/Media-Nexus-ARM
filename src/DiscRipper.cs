@@ -976,12 +976,13 @@ namespace DiscRipper
             AddSettingButtons(root, 2, "Interface", "Adjust the window, table columns, and Light or Dark appearance.", "Layout", configureLayout, "Appearance", configureTheme);
             AddSettingButtons(root, 3, "Media and Audio", "Choose visible media types, audio format, and manage the fre:ac engine.", "Media Types", configureMediaTypes, "Audio Engine", configureAudio);
             AddSettingButton(root, 4, "Completion", "Choose automatic eject behavior and pass/fail completion sounds.", "Configure", configureBehavior);
-            AddSettingButtons(root, 5, "Support", "Check the installation and version, or open the lightweight job logs.", "Diagnostics", diagnostics, "Open Logs", logs);
-            var closeRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, AutoSize = true, Padding = new Padding(0, 12, 0, 0) };
-            closeRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); closeRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            AddSettingButton(root, 5, "Support", "Open the lightweight job logs for completed and failed ripping jobs.", "Open Logs", logs);
+            var closeRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, AutoSize = true, Padding = new Padding(0, 12, 0, 0) };
+            closeRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); closeRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); closeRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             var resetButton = new Button { Text = "Reset Settings", AutoSize = true, Anchor = AnchorStyles.Left };
+            var version = new Label { Text = "Media Nexus ARM  v" + Assembly.GetExecutingAssembly().GetName().Version.ToString(3), AutoSize = true, Anchor = AnchorStyles.None, TextAlign = ContentAlignment.MiddleCenter };
             var close = new Button { Text = "Close", DialogResult = DialogResult.OK, AutoSize = true };
-            resetButton.Click += reset; closeRow.Controls.Add(resetButton, 0, 0); closeRow.Controls.Add(close, 1, 0);
+            resetButton.Click += reset; closeRow.Controls.Add(resetButton, 0, 0); closeRow.Controls.Add(version, 1, 0); closeRow.Controls.Add(close, 2, 0);
             root.Controls.Add(closeRow, 0, 6); Controls.Add(root); AcceptButton = close; CancelButton = close;
             ThemeSettings.Apply(this);
         }
