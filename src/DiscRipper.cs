@@ -579,11 +579,19 @@ namespace DiscRipper
                 string target = title.ToString();
                 var filesBefore = new HashSet<string>(Directory.GetFiles(outDir, "*.mkv"), StringComparer.OrdinalIgnoreCase);
                 int titlesDoneAtStart = completedTitles;
+                VideoTitleInfo selectedTitle = analysis.VideoTitles.FirstOrDefault(item => item.Id == title);
+                long expectedMovieBytes = kind == MediaKind.Movie && selectedTitle != null ? selectedTitle.SizeBytes : 0;
+                Func<long> movieBytesWritten = expectedMovieBytes > 0 ? (Func<long>)(() =>
+                    Directory.GetFiles(outDir, "*.mkv").Where(path => !filesBefore.Contains(path)).Sum(path =>
+                    {
+                        try { return new FileInfo(path).Length; }
+                        catch { return 0L; }
+                    })) : null;
                 var result = await RunProcess(makeMkv, "-r --noscan --minlength=" + MinLengthSeconds + " mkv disc:" + discIndex + " " + target + " \"" + outDir + "\"", token, percent =>
                 {
                     int wholeDiscPercent = Math.Min(99, ((titlesDoneAtStart * 100) + percent) / titleIds.Count);
                     QueueProgress(row, wholeDiscPercent);
-                }, true);
+                }, true, movieBytesWritten, expectedMovieBytes);
                 File.AppendAllText(logPath, result.Output, Encoding.UTF8);
                 bool copied = result.Output.IndexOf("Copy complete", StringComparison.OrdinalIgnoreCase) >= 0 ||
                               (result.ExitCode == 0 && Directory.GetFiles(outDir, "*.mkv").Length > filesBefore.Count);
@@ -707,7 +715,7 @@ namespace DiscRipper
         }
 
         private sealed class ProcessResult { public int ExitCode; public string Output; }
-        private static async Task<ProcessResult> RunProcess(string file, string arguments, CancellationToken token, Action<int> progress = null, bool useCurrentProgress = false)
+        private static async Task<ProcessResult> RunProcess(string file, string arguments, CancellationToken token, Action<int> progress = null, bool useCurrentProgress = false, Func<long> observedBytes = null, long expectedBytes = 0)
         {
             var output = new StringBuilder();
             using (var process = new Process())
@@ -718,6 +726,7 @@ namespace DiscRipper
                     if (line == null) return;
                     lock (output) output.AppendLine(line);
                     if (progress == null) return;
+                    if (observedBytes != null && expectedBytes > 0) return;
                     var match = Regex.Match(line.Trim(), @"^PRGV:(\d+),(\d+),(\d+)");
                     if (!match.Success) return;
                     long current = long.Parse(match.Groups[1].Value), total = long.Parse(match.Groups[2].Value), maximum = long.Parse(match.Groups[3].Value);
@@ -728,8 +737,22 @@ namespace DiscRipper
                 process.OutputDataReceived += (s, e) => handleLine(e.Data);
                 process.ErrorDataReceived += (s, e) => handleLine(e.Data);
                 process.Start(); process.BeginOutputReadLine(); process.BeginErrorReadLine();
+                Task fileProgress = observedBytes == null || expectedBytes <= 0 ? Task.FromResult(0) : Task.Run(async () =>
+                {
+                    while (!process.HasExited)
+                    {
+                        try
+                        {
+                            long written = observedBytes();
+                            progress((int)Math.Max(0, Math.Min(98, written * 100 / expectedBytes)));
+                        }
+                        catch { }
+                        await Task.Delay(750);
+                    }
+                });
                 using (token.Register(() => { try { if (!process.HasExited) process.Kill(); } catch { } }))
                     await Task.Run(() => process.WaitForExit(), token);
+                await fileProgress;
                 return new ProcessResult { ExitCode = process.ExitCode, Output = output.ToString() };
             }
         }
