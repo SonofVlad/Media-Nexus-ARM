@@ -172,12 +172,16 @@ namespace DiscRipper
 
         private void ConfigureTheme(object sender, EventArgs e)
         {
-            using (var dialog = new ThemeSettingsForm(ThemeSettings.IsDark()))
+            int originalZoom = ZoomSettings.Load();
+            using (var dialog = new ThemeSettingsForm(ThemeSettings.IsDark(), originalZoom))
             {
                 if (dialog.ShowDialog(DialogOwner(sender)) != DialogResult.OK) return;
                 ThemeSettings.Save(dialog.DarkMode);
+                ZoomSettings.Save(dialog.ZoomPercent);
                 ThemeSettings.Apply(this);
                 foreach (Form open in Application.OpenForms) ThemeSettings.Apply(open);
+                if (dialog.ZoomPercent != originalZoom)
+                    MessageBox.Show(this, "The new zoom level will be applied the next time Media Nexus ARM starts.", "Media Nexus ARM", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
         }
 
@@ -1046,19 +1050,23 @@ namespace DiscRipper
     internal sealed class ThemeSettingsForm : Form
     {
         private readonly ComboBox theme = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
+        private readonly ComboBox zoom = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
         public bool DarkMode { get { return Convert.ToString(theme.SelectedItem) == "Dark"; } }
-        public ThemeSettingsForm(bool dark)
+        public int ZoomPercent { get { return Convert.ToInt32(Convert.ToString(zoom.SelectedItem).TrimEnd('%')); } }
+        public ThemeSettingsForm(bool dark, int zoomPercent)
         {
             Text = "Media Nexus ARM - Appearance"; StartPosition = FormStartPosition.CenterParent; Font = new Font("Segoe UI", 9F);
-            FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false; MinimizeBox = false; ClientSize = new Size(420, 160);
-            var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(16), ColumnCount = 2, RowCount = 2 };
+            FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false; MinimizeBox = false; ClientSize = new Size(420, 205);
+            var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(16), ColumnCount = 2, RowCount = 3 };
             root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120)); root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             theme.Items.AddRange(new object[] { "Light", "Dark" }); theme.SelectedItem = dark ? "Dark" : "Light";
             root.Controls.Add(new Label { Text = "Color theme", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, 0, 0); root.Controls.Add(theme, 1, 0);
+            zoom.Items.AddRange(new object[] { "100%", "125%", "150%", "175%", "200%" }); zoom.SelectedItem = zoomPercent + "%";
+            root.Controls.Add(new Label { Text = "Interface zoom", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, 0, 1); root.Controls.Add(zoom, 1, 1);
             var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Padding = new Padding(0, 14, 0, 0) };
             var apply = new Button { Text = "Apply", DialogResult = DialogResult.OK, AutoSize = true }; var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true };
-            buttons.Controls.Add(apply); buttons.Controls.Add(cancel); root.Controls.Add(buttons, 0, 1); root.SetColumnSpan(buttons, 2); Controls.Add(root); AcceptButton = apply; CancelButton = cancel;
-            ThemeSettings.Apply(this, dark);
+            buttons.Controls.Add(apply); buttons.Controls.Add(cancel); root.Controls.Add(buttons, 0, 2); root.SetColumnSpan(buttons, 2); Controls.Add(root); AcceptButton = apply; CancelButton = cancel;
+            ThemeSettings.Apply(this, dark); ZoomSettings.Apply(this);
         }
     }
 
@@ -1120,7 +1128,12 @@ namespace DiscRipper
         {
             using (var key = Registry.CurrentUser.CreateSubKey(RegistryPath)) key.SetValue(ValueName, dark ? 1 : 0, RegistryValueKind.DWord);
         }
-        public static void Apply(Control root) { Apply(root, IsDark()); }
+        public static void Apply(Control root)
+        {
+            Apply(root, IsDark());
+            var form = root as Form;
+            if (form != null) ZoomSettings.Apply(form);
+        }
         public static void Apply(Control root, bool dark)
         {
             Color back = dark ? Color.FromArgb(32, 32, 32) : SystemColors.Control;
@@ -1155,6 +1168,42 @@ namespace DiscRipper
                 foreach (DataGridViewRow row in grid.Rows) row.DefaultCellStyle.ForeColor = fore;
             }
             foreach (Control child in root.Controls) Apply(child, dark);
+        }
+    }
+
+    internal static class ZoomSettings
+    {
+        private const string RegistryPath = @"Software\DiscRipper";
+        private const string ValueName = "InterfaceZoom";
+        private static readonly HashSet<Form> ScaledForms = new HashSet<Form>();
+
+        public static int Load()
+        {
+            try
+            {
+                using (var key = Registry.CurrentUser.OpenSubKey(RegistryPath))
+                {
+                    int value = key == null ? 100 : Convert.ToInt32(key.GetValue(ValueName, 100));
+                    return new[] { 100, 125, 150, 175, 200 }.Contains(value) ? value : 100;
+                }
+            }
+            catch { return 100; }
+        }
+
+        public static void Save(int percent)
+        {
+            if (!new[] { 100, 125, 150, 175, 200 }.Contains(percent)) percent = 100;
+            using (var key = Registry.CurrentUser.CreateSubKey(RegistryPath)) key.SetValue(ValueName, percent, RegistryValueKind.DWord);
+        }
+
+        public static void Apply(Form form)
+        {
+            if (form == null || ScaledForms.Contains(form)) return;
+            ScaledForms.Add(form);
+            int percent = Load();
+            if (percent == 100) return;
+            float factor = percent / 100F;
+            form.Scale(new SizeF(factor, factor));
         }
     }
 
