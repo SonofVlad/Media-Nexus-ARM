@@ -33,6 +33,9 @@ namespace DiscRipper
             }
             var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Padding = new Padding(0, 8, 0, 0) };
             var rip = new Button { Text = "Rip Selected", AutoSize = true }; var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true };
+            rip.Click += RipClicked;
+            buttons.Controls.Add(rip);
+            buttons.Controls.Add(cancel);
             if (!movie)
             {
                 var expected = new NumericUpDown { Minimum = 0, Maximum = 30, Width = 55, Value = 0 };
@@ -57,7 +60,7 @@ namespace DiscRipper
                 else if (!movie) foreach (DataGridViewRow row in grid.Rows) row.Cells[0].Value = select;
                 toggleAll.Text = select ? "Deselect All" : "Select All";
             };
-            rip.Click += RipClicked; buttons.Controls.Add(rip); buttons.Controls.Add(cancel); buttons.Controls.Add(toggleAll); root.Controls.Add(buttons, 0, 2); Controls.Add(root); AcceptButton = rip; CancelButton = cancel; ThemeSettings.Apply(this);
+            buttons.Controls.Add(toggleAll); root.Controls.Add(buttons, 0, 2); Controls.Add(root); AcceptButton = rip; CancelButton = cancel; ThemeSettings.Apply(this);
         }
 
         private void ApplyTvSuggestion(int expectedCount)
