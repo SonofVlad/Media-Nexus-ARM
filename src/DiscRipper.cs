@@ -966,10 +966,10 @@ namespace DiscRipper
         {
             Text = "Media Nexus ARM - Settings"; StartPosition = FormStartPosition.CenterParent;
             Font = new Font("Segoe UI", 9F); FormBorderStyle = FormBorderStyle.FixedDialog;
-            MaximizeBox = false; MinimizeBox = false; ClientSize = new Size(620, 500);
+            MaximizeBox = false; MinimizeBox = false; ClientSize = new Size(620, 390);
             var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(18), ColumnCount = 1, RowCount = 7 };
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            for (int i = 1; i <= 5; i++) root.RowStyles.Add(new RowStyle(SizeType.Percent, 20F));
+            for (int i = 1; i <= 5; i++) root.RowStyles.Add(new RowStyle(SizeType.Absolute, 54F));
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             root.Controls.Add(new Label { Text = "Settings", Font = new Font("Segoe UI", 15F, FontStyle.Bold), AutoSize = true, Padding = new Padding(0, 0, 0, 10) }, 0, 0);
             AddSettingButtons(root, 1, "Drives and Storage", "Choose the managed optical drives and the media output folder.", "Optical Drives", configureDrives, "Output Folder", configureOutput);
@@ -990,7 +990,7 @@ namespace DiscRipper
         {
             var panel = CreateSettingRow();
             var text = new Label { Text = title + Environment.NewLine + description, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
-            var button = new Button { Text = buttonText, Dock = DockStyle.Fill, Margin = new Padding(4, 3, 0, 3) };
+            var button = new Button { Text = buttonText, Size = new Size(96, 28), Anchor = AnchorStyles.Right, Margin = new Padding(4, 3, 0, 3) };
             button.Click += action; panel.Controls.Add(text, 0, 0); panel.Controls.Add(button, 2, 0); root.Controls.Add(panel, 0, row);
         }
 
@@ -998,8 +998,8 @@ namespace DiscRipper
         {
             var panel = CreateSettingRow();
             var text = new Label { Text = title + Environment.NewLine + description, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
-            var first = new Button { Text = firstText, Dock = DockStyle.Fill, Margin = new Padding(4, 3, 4, 3) };
-            var second = new Button { Text = secondText, Dock = DockStyle.Fill, Margin = new Padding(4, 3, 0, 3) };
+            var first = new Button { Text = firstText, Size = new Size(92, 28), Anchor = AnchorStyles.Right, Margin = new Padding(4, 3, 4, 3) };
+            var second = new Button { Text = secondText, Size = new Size(96, 28), Anchor = AnchorStyles.Right, Margin = new Padding(4, 3, 0, 3) };
             first.Click += firstAction; second.Click += secondAction;
             panel.Controls.Add(text, 0, 0); panel.Controls.Add(first, 1, 0); panel.Controls.Add(second, 2, 0); root.Controls.Add(panel, 0, row);
         }
