@@ -976,22 +976,29 @@ namespace DiscRipper
 
         private static void AddSettingButton(TableLayoutPanel root, int row, string title, string description, string buttonText, EventHandler action)
         {
-            var panel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new Padding(0, 4, 0, 4) };
-            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); panel.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            var panel = CreateSettingRow();
             var text = new Label { Text = title + Environment.NewLine + description, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
-            var button = new Button { Text = buttonText, AutoSize = true, Anchor = AnchorStyles.Right };
-            button.Click += action; panel.Controls.Add(text, 0, 0); panel.Controls.Add(button, 1, 0); root.Controls.Add(panel, 0, row);
+            var button = new Button { Text = buttonText, Dock = DockStyle.Fill, Margin = new Padding(4, 3, 0, 3) };
+            button.Click += action; panel.Controls.Add(text, 0, 0); panel.Controls.Add(button, 2, 0); root.Controls.Add(panel, 0, row);
         }
 
         private static void AddSettingButtons(TableLayoutPanel root, int row, string title, string description, string firstText, EventHandler firstAction, string secondText, EventHandler secondAction)
         {
-            var panel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new Padding(0, 4, 0, 4) };
-            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); panel.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            var panel = CreateSettingRow();
             var text = new Label { Text = title + Environment.NewLine + description, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
-            var buttons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, FlowDirection = FlowDirection.LeftToRight, Anchor = AnchorStyles.Right };
-            var first = new Button { Text = firstText, AutoSize = true }; var second = new Button { Text = secondText, AutoSize = true };
-            first.Click += firstAction; second.Click += secondAction; buttons.Controls.Add(first); buttons.Controls.Add(second);
-            panel.Controls.Add(text, 0, 0); panel.Controls.Add(buttons, 1, 0); root.Controls.Add(panel, 0, row);
+            var first = new Button { Text = firstText, Dock = DockStyle.Fill, Margin = new Padding(4, 3, 4, 3) };
+            var second = new Button { Text = secondText, Dock = DockStyle.Fill, Margin = new Padding(4, 3, 0, 3) };
+            first.Click += firstAction; second.Click += secondAction;
+            panel.Controls.Add(text, 0, 0); panel.Controls.Add(first, 1, 0); panel.Controls.Add(second, 2, 0); root.Controls.Add(panel, 0, row);
+        }
+
+        private static TableLayoutPanel CreateSettingRow()
+        {
+            var panel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, Margin = new Padding(0, 4, 0, 4) };
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 100));
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 100));
+            return panel;
         }
     }
 
