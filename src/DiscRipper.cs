@@ -68,6 +68,7 @@ namespace DiscRipper
         private string outputRoot;
         private readonly string makeMkv;
         private bool closing;
+        private ZoomWheelMessageFilter zoomWheelFilter;
 
         public MainForm(List<OpticalDrive> selectedDrives, string selectedOutputRoot)
         {
@@ -110,7 +111,19 @@ namespace DiscRipper
             pollTimer.Tick += PollTimerOnTick;
             Shown += (s, e) => { pollTimer.Start(); PollAll(); };
             ThemeSettings.Apply(this);
+            zoomWheelFilter = new ZoomWheelMessageFilter(ChangeZoomByWheel);
+            Application.AddMessageFilter(zoomWheelFilter);
             AppSettings.CleanOldLogs(outputRoot, 30);
+        }
+
+        private void ChangeZoomByWheel(int direction)
+        {
+            int current = ZoomSettings.Load();
+            int next = Math.Max(50, Math.Min(300, current + (direction > 0 ? 5 : -5)));
+            if (next == current) return;
+            ZoomSettings.Save(next);
+            ZoomSettings.ApplyLive(this, current, next);
+            footer.Text = "Interface zoom: " + next + "%  (Ctrl + mouse wheel to adjust)";
         }
 
         private void OpenSettings(object sender, EventArgs e)
@@ -901,7 +914,9 @@ namespace DiscRipper
 
         private void OnClosing(object sender, FormClosingEventArgs e)
         {
-            closing = true; pollTimer.Stop(); foreach (var row in rows.Values) if (row.Cancellation != null) row.Cancellation.Cancel();
+            closing = true; pollTimer.Stop();
+            if (zoomWheelFilter != null) Application.RemoveMessageFilter(zoomWheelFilter);
+            foreach (var row in rows.Values) if (row.Cancellation != null) row.Cancellation.Cancel();
         }
 
         private const uint GENERIC_READ = 0x80000000, FILE_SHARE_READ = 1, FILE_SHARE_WRITE = 2, OPEN_EXISTING = 3;
@@ -922,6 +937,20 @@ namespace DiscRipper
             if (h == new IntPtr(-1)) return;
             try { uint returned; DeviceIoControl(h, IOCTL_STORAGE_EJECT_MEDIA, IntPtr.Zero, 0, IntPtr.Zero, 0, out returned, IntPtr.Zero); }
             finally { CloseHandle(h); }
+        }
+    }
+
+    internal sealed class ZoomWheelMessageFilter : IMessageFilter
+    {
+        private const int WmMouseWheel = 0x020A;
+        private readonly Action<int> changeZoom;
+        public ZoomWheelMessageFilter(Action<int> action) { changeZoom = action; }
+        public bool PreFilterMessage(ref Message message)
+        {
+            if (message.Msg != WmMouseWheel || (Control.ModifierKeys & Keys.Control) != Keys.Control) return false;
+            int delta = unchecked((short)(((long)message.WParam >> 16) & 0xffff));
+            if (delta != 0) changeZoom(delta);
+            return true;
         }
     }
 
@@ -1071,7 +1100,8 @@ namespace DiscRipper
             root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120)); root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             theme.Items.AddRange(new object[] { "Light", "Dark" }); theme.SelectedItem = dark ? "Dark" : "Light";
             root.Controls.Add(new Label { Text = "Color theme", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, 0, 0); root.Controls.Add(theme, 1, 0);
-            zoom.Items.AddRange(new object[] { "100%", "125%", "150%", "175%", "200%" }); zoom.SelectedItem = zoomPercent + "%";
+            zoom.Items.AddRange(new object[] { "100%", "125%", "150%", "175%", "200%" });
+            string zoomText = zoomPercent + "%"; if (!zoom.Items.Contains(zoomText)) zoom.Items.Add(zoomText); zoom.SelectedItem = zoomText;
             root.Controls.Add(new Label { Text = "Interface zoom", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, 0, 1); root.Controls.Add(zoom, 1, 1);
             string[] presets = { "480p (854 x 480)", "720p (1280 x 720)", "900p (1600 x 900)", "1080p (1920 x 1080)" };
             resolution.Items.AddRange(presets);
@@ -1210,7 +1240,7 @@ namespace DiscRipper
                 using (var key = Registry.CurrentUser.OpenSubKey(RegistryPath))
                 {
                     int value = key == null ? 100 : Convert.ToInt32(key.GetValue(ValueName, 100));
-                    return new[] { 100, 125, 150, 175, 200 }.Contains(value) ? value : 100;
+                    return value >= 50 && value <= 300 && value % 5 == 0 ? value : 100;
                 }
             }
             catch { return 100; }
@@ -1218,8 +1248,22 @@ namespace DiscRipper
 
         public static void Save(int percent)
         {
-            if (!new[] { 100, 125, 150, 175, 200 }.Contains(percent)) percent = 100;
+            if (percent < 50 || percent > 300 || percent % 5 != 0) percent = 100;
             using (var key = Registry.CurrentUser.CreateSubKey(RegistryPath)) key.SetValue(ValueName, percent, RegistryValueKind.DWord);
+        }
+
+        public static void ApplyLive(Form form, int oldPercent, int newPercent)
+        {
+            if (form == null || oldPercent <= 0 || oldPercent == newPercent) return;
+            float factor = newPercent / (float)oldPercent;
+            Size originalSize = form.Size; Size originalMinimum = form.MinimumSize;
+            form.SuspendLayout();
+            try
+            {
+                form.Scale(new SizeF(factor, factor));
+                if (form is MainForm) { form.MinimumSize = originalMinimum; form.Size = originalSize; }
+            }
+            finally { form.ResumeLayout(true); }
         }
 
         public static void Apply(Form form)

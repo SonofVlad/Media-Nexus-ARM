@@ -13,7 +13,7 @@ Media Nexus ARM is a Windows automatic ripping machine for movies, TV series, mu
 - Lets users hide unused media types from both dropdowns and the Change all toolbar
 - Provides a recent-job History screen derived directly from the existing log files
 - Defaults every drive to Media Type and waits for an explicit selection
-- Provides consolidated settings with remembered Light/Dark themes, 100–200% interface zoom, and 480p/720p/900p/1080p main-window presets
+- Provides consolidated settings with remembered Light/Dark themes, zoom presets plus Ctrl+mouse-wheel adjustment in 5% steps, and 480p/720p/900p/1080p main-window presets
 - Supports configurable automatic eject behavior and optional success/failure sounds
 - Includes lightweight diagnostics for MakeMKV, fre:ac, output storage, free space, and optical drives
 - Retains logs for 30 days and provides an Open Logs action
