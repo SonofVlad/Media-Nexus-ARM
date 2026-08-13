@@ -11,9 +11,6 @@ namespace DiscRipper
     {
         public string Title;
         public int Year;
-        public int Season = 1;
-        public int FirstEpisode = 1;
-        public readonly List<string> EpisodeNames = new List<string>();
     }
 
     internal sealed class VideoNamingForm : Form
@@ -21,54 +18,28 @@ namespace DiscRipper
         private readonly MediaKind kind;
         private readonly TextBox title = new TextBox();
         private readonly NumericUpDown year = new NumericUpDown { Minimum = 0, Maximum = 2100 };
-        private readonly NumericUpDown season = new NumericUpDown { Minimum = 0, Maximum = 999, Value = 1 };
-        private readonly NumericUpDown episode = new NumericUpDown { Minimum = 0, Maximum = 9999, Value = 1 };
-        private readonly TextBox episodeNames = new TextBox { Multiline = true, ScrollBars = ScrollBars.Vertical };
-        private readonly int fileCount;
         public VideoNamingResult Result { get; private set; }
 
-        public VideoNamingForm(MediaKind kind, string discLabel, int fileCount)
+        public VideoNamingForm(MediaKind kind, string driveLetter, string discLabel, int fileCount)
         {
-            this.kind = kind; this.fileCount = fileCount; Text = "Media Nexus ARM - Name " + (kind == MediaKind.Movie ? "Movie" : "TV Episodes"); StartPosition = FormStartPosition.CenterParent; Font = new Font("Segoe UI", 9F);
-            Size = kind == MediaKind.Movie ? new Size(590, 270) : new Size(650, 500); FormBorderStyle = FormBorderStyle.SizableToolWindow;
-            var grid = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(14), ColumnCount = 2, RowCount = kind == MediaKind.Movie ? 4 : 7 };
+            string drive = driveLetter.TrimEnd(':') + ":";
+            this.kind = kind; Text = "Media Nexus ARM - Drive " + drive + " - Name Movie"; StartPosition = FormStartPosition.CenterParent; Font = new Font("Segoe UI", 9F);
+            Size = new Size(590, 270); FormBorderStyle = FormBorderStyle.SizableToolWindow;
+            var grid = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(14), ColumnCount = 2, RowCount = 5 };
             grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150)); grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            title.Text = FriendlyDiscLabel(discLabel); Add(grid, 0, "Title / Show", title); Add(grid, 1, "Year (optional)", year);
-            int buttonRow;
-            if (kind == MediaKind.TVSeries)
-            {
-                Add(grid, 2, "Season", season); Add(grid, 3, "First episode", episode);
-                grid.Controls.Add(new Label { Text = "Episode names\r\n(one per line, optional)", Dock = DockStyle.Fill, TextAlign = ContentAlignment.TopLeft }, 0, 4);
-                episodeNames.Dock = DockStyle.Fill; grid.Controls.Add(episodeNames, 1, 4); grid.RowStyles.Add(new RowStyle(SizeType.AutoSize)); grid.RowStyles.Add(new RowStyle(SizeType.AutoSize)); grid.RowStyles.Add(new RowStyle(SizeType.AutoSize)); grid.RowStyles.Add(new RowStyle(SizeType.AutoSize)); grid.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-                var lookup = new Button { Text = "Find Episode Names with TVMaze", AutoSize = true }; lookup.Click += LookupEpisodes;
-                var lookupRow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true }; lookupRow.Controls.Add(lookup); lookupRow.Controls.Add(new Label { Text = fileCount + " selected file(s) will be numbered sequentially.", AutoSize = true, ForeColor = Color.DimGray, Padding = new Padding(8, 7, 0, 0) });
-                grid.Controls.Add(lookupRow, 1, 5); buttonRow = 6;
-            }
-            else { grid.Controls.Add(new Label { Text = "Leave the title blank and choose Keep Original Names to preserve the raw rip folder.", AutoSize = true, ForeColor = Color.DimGray }, 1, 2); buttonRow = 3; }
+            title.Text = FriendlyDiscLabel(discLabel); Add(grid, 0, "Drive", new Label { Text = drive, TextAlign = ContentAlignment.MiddleLeft }); Add(grid, 1, "Title / Show", title); Add(grid, 2, "Year (optional)", year);
+            grid.Controls.Add(new Label { Text = "The movie folder and MKV will use this name.", AutoSize = true, ForeColor = Color.DimGray }, 1, 3); int buttonRow = 4;
             var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Padding = new Padding(0, 8, 0, 0) };
             var apply = new Button { Text = "Apply Naming", AutoSize = true }; var skip = new Button { Text = "Keep Original Names", DialogResult = DialogResult.Ignore, AutoSize = true }; var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true };
-            apply.Click += ApplyClicked; buttons.Controls.Add(apply); buttons.Controls.Add(skip); buttons.Controls.Add(cancel); grid.Controls.Add(buttons, 0, buttonRow); grid.SetColumnSpan(buttons, 2); Controls.Add(grid); AcceptButton = apply; CancelButton = cancel;
+            apply.Click += ApplyClicked; buttons.Controls.Add(apply); buttons.Controls.Add(skip); buttons.Controls.Add(cancel); grid.Controls.Add(buttons, 0, buttonRow); grid.SetColumnSpan(buttons, 2); Controls.Add(grid); AcceptButton = apply; CancelButton = cancel; ThemeSettings.Apply(this);
         }
 
         private static void Add(TableLayoutPanel grid, int row, string label, Control input) { grid.Controls.Add(new Label { Text = label, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, 0, row); input.Dock = DockStyle.Fill; grid.Controls.Add(input, 1, row); }
         private void ApplyClicked(object sender, EventArgs e)
         {
             if (string.IsNullOrWhiteSpace(title.Text)) { MessageBox.Show(this, "Enter a title or choose Keep Original Names.", "Media Nexus ARM", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
-            Result = new VideoNamingResult { Title = title.Text.Trim(), Year = (int)year.Value, Season = (int)season.Value, FirstEpisode = (int)episode.Value };
-            Result.EpisodeNames.AddRange(episodeNames.Lines.Select(x => x.Trim()).Where(x => x.Length > 0)); DialogResult = DialogResult.OK; Close();
-        }
-        private async void LookupEpisodes(object sender, EventArgs e)
-        {
-            if (string.IsNullOrWhiteSpace(title.Text)) { MessageBox.Show(this, "Enter a show title first.", "Media Nexus ARM", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
-            Button button = sender as Button; if (button != null) button.Enabled = false;
-            try
-            {
-                TvMazeLookup found = await TvMazeClient.LookupAsync(title.Text.Trim(), (int)season.Value, (int)episode.Value, fileCount, System.Threading.CancellationToken.None);
-                if (found == null || found.EpisodeNames.Count == 0) { MessageBox.Show(this, "TVMaze did not return matching episodes. Check the show, season, and starting episode.", "Media Nexus ARM", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
-                title.Text = found.ShowName; if (year.Value == 0 && found.PremieredYear > 0) year.Value = found.PremieredYear; episodeNames.Lines = found.EpisodeNames.ToArray();
-            }
-            catch (Exception ex) { MessageBox.Show(this, "TVMaze lookup failed: " + ex.Message, "Media Nexus ARM", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
-            finally { if (button != null) button.Enabled = true; }
+            Result = new VideoNamingResult { Title = title.Text.Trim(), Year = (int)year.Value };
+            DialogResult = DialogResult.OK; Close();
         }
         private static string FriendlyDiscLabel(string value) { if (string.IsNullOrWhiteSpace(value) || value == "LOGICAL_VOLUME_ID" || value.StartsWith("DISC_")) return ""; return value.Replace('_', ' ').Trim(); }
     }
@@ -80,13 +51,17 @@ namespace DiscRipper
             string baseName = DisplayBase(naming); string folder = UniqueFolder(Path.Combine(outputRoot, "Movies", baseName)); Directory.CreateDirectory(folder);
             string target = Path.Combine(folder, baseName + ".mkv"); SafeMove(source, target); if (log != null) log(source + " -> " + target); return folder;
         }
-        public static string OrganizeTv(IList<string> sources, string outputRoot, VideoNamingResult naming, Action<string> log)
+        public static string OrganizeMovieFromDiscName(string source, string outputRoot, string discName, Action<string> log)
         {
-            string show = DisplayBase(naming); string folder = Path.Combine(outputRoot, "TV Shows", show, "Season " + naming.Season.ToString("00")); Directory.CreateDirectory(folder);
-            for (int i = 0; i < sources.Count; i++)
+            string baseName = MusicOrganizer.SafeName(discName); string folder = UniqueFolder(Path.Combine(outputRoot, "Movies", baseName)); Directory.CreateDirectory(folder);
+            string target = Path.Combine(folder, baseName + ".mkv"); SafeMove(source, target); if (log != null) log(source + " -> " + target); return folder;
+        }
+        public static string OrganizeTvOriginalNames(IList<string> sources, string outputRoot, string discName, Action<string> log)
+        {
+            string folder = UniqueFolder(Path.Combine(outputRoot, "TV Shows", MusicOrganizer.SafeName(discName))); Directory.CreateDirectory(folder);
+            foreach (string source in sources)
             {
-                int number = naming.FirstEpisode + i; string episodeName = i < naming.EpisodeNames.Count ? " - " + MusicOrganizer.SafeName(naming.EpisodeNames[i]) : "";
-                string target = UniqueFile(Path.Combine(folder, show + " - S" + naming.Season.ToString("00") + "E" + number.ToString("00") + episodeName + ".mkv")); SafeMove(sources[i], target); if (log != null) log(sources[i] + " -> " + target);
+                string target = UniqueFile(Path.Combine(folder, Path.GetFileName(source))); SafeMove(source, target); if (log != null) log(source + " -> " + target);
             }
             return folder;
         }

@@ -61,15 +61,29 @@ namespace DiscRipper
             Directory.CreateDirectory(destination);
             int driveIndex = GetFreacDriveIndex(driveLetter);
             if (driveIndex < 0) throw new InvalidOperationException("Could not map drive " + driveLetter + ": to a fre:ac device.");
-            var args = new List<string> { "--drive=" + driveIndex, "--track=all", "--encoder=coreaudio", "-d", Quote(destination), "--pattern=<track>", "--eject" };
+            var args = new List<string> { "--drive=" + driveIndex, "--track=all", "--encoder=coreaudio", "-d", Quote(destination), "--pattern=<track>" };
             if (!string.IsNullOrWhiteSpace(coverPath) && File.Exists(coverPath)) args.Add("--add-cover=" + Quote(coverPath));
             args.Add("--"); args.Add("-f"); args.Add("ALAC");
-            int completed = 0;
+            int completed = 0, lastProgress = -1;
+            int totalFrames = Math.Max(1, toc.LeadoutOffset - toc.TrackOffsets[0]);
+            Action<int> reportTrackPercent = trackPercent =>
+            {
+                int track = Math.Min(completed, toc.TrackOffsets.Count - 1);
+                int start = toc.TrackOffsets[track];
+                int end = track + 1 < toc.TrackOffsets.Count ? toc.TrackOffsets[track + 1] : toc.LeadoutOffset;
+                long framesDone = (long)(start - toc.TrackOffsets[0]) + ((long)Math.Max(0, end - start) * Math.Max(0, Math.Min(100, trackPercent)) / 100);
+                int value = Math.Min(99, (int)(framesDone * 100 / totalFrames));
+                if (value > lastProgress) { lastProgress = value; if (progress != null) progress(value); }
+            };
             ProcessTextResult run = await ProcessText.RunAsync(ExecutablePath, string.Join(" ", args.ToArray()), token, line =>
             {
+                Match percent = Regex.Match(line, @"(?<!\d)(\d{1,3})(?:\.\d+)?\s*%");
+                int livePercent;
+                if (percent.Success && int.TryParse(percent.Groups[1].Value, out livePercent) && livePercent <= 100) reportTrackPercent(livePercent);
                 if (line.IndexOf("done.", StringComparison.OrdinalIgnoreCase) >= 0)
                 {
-                    completed++; if (progress != null) progress(Math.Min(99, completed * 100 / Math.Max(1, toc.TrackOffsets.Count)));
+                    reportTrackPercent(100);
+                    completed++;
                 }
             });
             string[] files = Directory.GetFiles(destination, "*.m4a", SearchOption.TopDirectoryOnly).OrderBy(NaturalTrackOrder).ToArray();
@@ -99,7 +113,7 @@ namespace DiscRipper
             return Task.Run(() =>
             {
                 ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
-                var request = (HttpWebRequest)WebRequest.Create(url); request.UserAgent = "Media-Nexus-ARM/0.2.0"; request.AllowAutoRedirect = true;
+                var request = (HttpWebRequest)WebRequest.Create(url); request.UserAgent = "Media-Nexus-ARM/0.7.2"; request.AllowAutoRedirect = true;
                 using (token.Register(() => request.Abort())) using (var response = request.GetResponse()) using (Stream input = response.GetResponseStream()) using (FileStream output = File.Create(target)) input.CopyTo(output);
             }, token);
         }
@@ -137,11 +151,33 @@ namespace DiscRipper
             {
                 process.StartInfo = new ProcessStartInfo(file, arguments) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
                 Action<string> handle = line => { if (line == null) return; lock (output) output.AppendLine(line); if (lineHandler != null) lineHandler(line); };
-                process.OutputDataReceived += (s, e) => handle(e.Data); process.ErrorDataReceived += (s, e) => handle(e.Data);
-                process.Start(); process.BeginOutputReadLine(); process.BeginErrorReadLine();
+                process.Start();
+                Task stdout = PumpAsync(process.StandardOutput, handle);
+                Task stderr = PumpAsync(process.StandardError, handle);
                 using (token.Register(() => { try { if (!process.HasExited) process.Kill(); } catch { } })) await Task.Run(() => process.WaitForExit(), token);
+                await Task.WhenAll(stdout, stderr);
                 return new ProcessTextResult { ExitCode = process.ExitCode, Output = output.ToString() };
             }
+        }
+
+        private static async Task PumpAsync(StreamReader reader, Action<string> handler)
+        {
+            var text = new StringBuilder();
+            var buffer = new char[256];
+            int count;
+            while ((count = await reader.ReadAsync(buffer, 0, buffer.Length)) > 0)
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    char value = buffer[i];
+                    if (value == '\r' || value == '\n')
+                    {
+                        if (text.Length > 0) { handler(text.ToString()); text.Clear(); }
+                    }
+                    else text.Append(value);
+                }
+            }
+            if (text.Length > 0) handler(text.ToString());
         }
     }
 }

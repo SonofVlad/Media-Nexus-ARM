@@ -32,7 +32,7 @@ namespace DiscRipper
             var close = new Button { Text = "Close", DialogResult = DialogResult.Cancel, AutoSize = true };
             install.AutoSize = true; install.Click += InstallClicked;
             buttons.Controls.Add(close); buttons.Controls.Add(install); root.Controls.Add(buttons, 0, 4); root.SetColumnSpan(buttons, 2);
-            Controls.Add(root); CancelButton = close; RefreshStatus();
+            Controls.Add(root); CancelButton = close; ThemeSettings.Apply(this); RefreshStatus();
         }
 
         private static void AddRow(TableLayoutPanel panel, int row, string name, Control value)
@@ -47,19 +47,19 @@ namespace DiscRipper
             latest.Text = manager.LatestStableVersion;
             bool current = string.Equals(manager.InstalledVersion, manager.LatestStableVersion, StringComparison.OrdinalIgnoreCase);
             status.Text = current ? "Up to date" : manager.InstalledVersion == "Not installed" ? "Installed automatically on first audio rip" : "Update available";
-            status.ForeColor = current ? Color.DarkGreen : Color.DarkOrange;
+            status.ForeColor = ThemeSettings.IsDark() ? Color.White : Color.Black;
             install.Text = manager.InstalledVersion == "Not installed" ? "Install Now" : "Check / Repair";
         }
 
         private async void InstallClicked(object sender, EventArgs e)
         {
-            install.Enabled = false; status.Text = "Checking official stable package..."; status.ForeColor = Color.DarkBlue;
+            install.Enabled = false; status.Text = "Checking official stable package..."; status.ForeColor = ThemeSettings.IsDark() ? Color.White : Color.Black;
             try
             {
                 await manager.EnsureInstalledAsync(text => BeginInvoke(new Action(() => status.Text = text)), CancellationToken.None);
                 RefreshStatus();
             }
-            catch (Exception ex) { status.Text = "Error: " + ex.Message; status.ForeColor = Color.DarkRed; }
+            catch (Exception ex) { status.Text = "Error: " + ex.Message; status.ForeColor = ThemeSettings.IsDark() ? Color.White : Color.Black; }
             finally { install.Enabled = true; }
         }
     }

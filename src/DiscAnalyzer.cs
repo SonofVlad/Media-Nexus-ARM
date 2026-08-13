@@ -102,6 +102,41 @@ namespace DiscRipper
             return candidates.OrderBy(t => t.Composite).ThenByDescending(t => t.DurationSeconds >= 4500).ThenByDescending(t => t.SizeBytes).ToList();
         }
 
+        public static bool TrySelectHighConfidenceMovie(IEnumerable<VideoTitleInfo> source, out int titleId, out string reason)
+        {
+            titleId = -1; reason = "";
+            List<VideoTitleInfo> all = source.Where(t => t.DurationSeconds >= 600).ToList();
+            MarkCompositeTitles(all);
+            List<VideoTitleInfo> features = all.Where(t => t.DurationSeconds >= 3600 && !t.Composite)
+                .OrderByDescending(t => t.SizeBytes).ThenByDescending(t => t.DurationSeconds).ToList();
+            if (features.Count == 0) return false;
+
+            VideoTitleInfo best = features[0];
+            if (all.Count == 1)
+            {
+                titleId = best.Id; reason = "only substantial title on the disc"; return true;
+            }
+
+            List<VideoTitleInfo> competitors = features.Skip(1).ToList();
+            bool nearDuplicate = competitors.Any(t =>
+                Math.Abs(t.DurationSeconds - best.DurationSeconds) <= Math.Max(300, best.DurationSeconds * 0.10) &&
+                (best.SizeBytes <= 0 || t.SizeBytes <= 0 || t.SizeBytes >= best.SizeBytes * 0.70));
+            if (nearDuplicate) return false;
+
+            long largestOtherSize = all.Where(t => t.Id != best.Id).Select(t => t.SizeBytes).DefaultIfEmpty(0).Max();
+            int longestOtherRuntime = all.Where(t => t.Id != best.Id).Select(t => t.DurationSeconds).DefaultIfEmpty(0).Max();
+            const long OneGiB = 1073741824L;
+            bool clearSizeWinner = best.SizeBytes >= 3L * OneGiB && largestOtherSize > 0 && largestOtherSize < OneGiB && best.SizeBytes >= largestOtherSize * 3;
+            bool clearFeatureWinner = best.DurationSeconds >= 4500 &&
+                (longestOtherRuntime == 0 || best.DurationSeconds >= longestOtherRuntime * 1.50) &&
+                (largestOtherSize == 0 || best.SizeBytes == 0 || best.SizeBytes >= largestOtherSize * 1.75);
+            if (!clearSizeWinner && !clearFeatureWinner) return false;
+
+            titleId = best.Id;
+            reason = clearSizeWinner ? "one feature-sized title and all other titles are under 1 GiB" : "one title is dominant by both runtime and size";
+            return true;
+        }
+
         private static void MarkCompositeTitles(IEnumerable<VideoTitleInfo> source)
         {
             List<VideoTitleInfo> titles = source.ToList();
@@ -116,26 +151,58 @@ namespace DiscRipper
             return inner.Segments.All(outerSet.Contains);
         }
 
-        public static List<int> SelectTvTitles(IEnumerable<VideoTitleInfo> titles)
+        public static List<int> SelectTvTitles(IEnumerable<VideoTitleInfo> titles, int expectedCount = 0)
         {
-            List<VideoTitleInfo> all = titles.Where(t => t.DurationSeconds >= 900).OrderBy(t => t.DurationSeconds).ToList();
-            List<VideoTitleInfo> cluster = FindEpisodeCluster(all).OrderBy(t => t.Id).ToList();
-            var seenSegments = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var selected = new List<int>();
-            foreach (VideoTitleInfo title in cluster)
+            List<VideoTitleInfo> all = titles.Where(t => t.DurationSeconds >= 600).ToList();
+            foreach (VideoTitleInfo title in all) title.SelectionReason = null;
+            List<VideoTitleInfo> episodeRange = all.Where(t => t.DurationSeconds >= 900 && t.DurationSeconds <= 5400).ToList();
+            List<VideoTitleInfo> cluster = FindEpisodeCluster(episodeRange);
+            if (cluster.Count == 0) return new List<int>();
+
+            double center = Median(cluster.Select(t => t.DurationSeconds));
+            int typicalChapters = (int)Math.Round(Median(cluster.Where(t => t.Chapters > 0).Select(t => t.Chapters)));
+            var scored = new List<Tuple<VideoTitleInfo, double>>();
+            foreach (VideoTitleInfo title in episodeRange)
             {
-                string signature = title.Segments.Count == 0 ? "title:" + title.Id : string.Join(",", title.Segments.ToArray());
-                if (!seenSegments.Add(signature)) { title.SelectionReason = "Duplicate segment map"; continue; }
-                title.SelectionReason = "Probable individual episode"; selected.Add(title.Id);
+                double runtimeDistance = Math.Abs(title.DurationSeconds - center) / center;
+                double score = Math.Max(0, 100 - runtimeDistance * 260);
+                if (runtimeDistance <= 0.15) score += 35;
+                if (typicalChapters > 0 && title.Chapters > 0) score += Math.Max(0, 15 - Math.Abs(title.Chapters - typicalChapters) * 3);
+                if (title.SizeBytes > 0) score += 5;
+                scored.Add(Tuple.Create(title, score));
             }
-            int combined = cluster.Sum(t => t.DurationSeconds);
-            foreach (VideoTitleInfo title in all.Where(t => !selected.Contains(t.Id) && string.IsNullOrWhiteSpace(t.SelectionReason)))
+
+            int target = expectedCount > 0 ? Math.Min(expectedCount, scored.Count) : cluster.Count;
+            List<VideoTitleInfo> selected = scored.OrderByDescending(x => x.Item2).ThenBy(x => x.Item1.Id).Take(target).Select(x => x.Item1).ToList();
+            int selectedTotal = selected.Sum(t => t.DurationSeconds);
+            foreach (VideoTitleInfo title in all)
             {
-                if (combined > 0 && title.DurationSeconds >= combined * 0.80 && title.DurationSeconds <= combined * 1.20) title.SelectionReason = "Probable Play All playlist";
-                else if (title.DurationSeconds < 1200) title.SelectionReason = "Probable extra / short feature";
-                else title.SelectionReason = "Outside episode-duration cluster";
+                bool playAllByRuntime = selected.Count >= 2 && !selected.Contains(title) && title.DurationSeconds >= selectedTotal * 0.88 && title.DurationSeconds <= selectedTotal * 1.12;
+                bool playAllBySegments = playAllByRuntime && selected.Count(t => ContainsSegments(title, t)) >= Math.Max(2, selected.Count - 1);
+                if (playAllBySegments) title.SelectionReason = "Probable Play All (summed runtime and segment containment)";
+                else if (playAllByRuntime) title.SelectionReason = "Probable Play All (runtime approximates selected episodes)";
+                else if (selected.Contains(title))
+                {
+                    bool duplicateMap = selected.Any(other => other.Id != title.Id && SameSegments(other, title));
+                    title.SelectionReason = duplicateMap ? "Probable episode; segment map is shared (not excluded)" : "Probable episode; strong runtime/chapter match";
+                }
+                else if (title.DurationSeconds < 900) title.SelectionReason = "Probable short extra";
+                else title.SelectionReason = "Weaker episode candidate; outside the best runtime cluster";
             }
-            return selected;
+            return selected.OrderBy(t => t.Id).Select(t => t.Id).ToList();
+        }
+
+        private static bool SameSegments(VideoTitleInfo left, VideoTitleInfo right)
+        {
+            return left.Segments.Count > 0 && left.Segments.Count == right.Segments.Count && left.Segments.SequenceEqual(right.Segments, StringComparer.OrdinalIgnoreCase);
+        }
+
+        private static double Median(IEnumerable<int> values)
+        {
+            int[] ordered = values.OrderBy(x => x).ToArray();
+            if (ordered.Length == 0) return 0;
+            int middle = ordered.Length / 2;
+            return ordered.Length % 2 == 0 ? (ordered[middle - 1] + ordered[middle]) / 2.0 : ordered[middle];
         }
 
         private static List<VideoTitleInfo> FindEpisodeCluster(List<VideoTitleInfo> titles)
@@ -150,8 +217,7 @@ namespace DiscRipper
             }
             if (best.Count < 2) return new List<VideoTitleInfo>();
 
-            int combined = best.Sum(t => t.DurationSeconds);
-            return best.Where(t => t.DurationSeconds < combined * 0.80).ToList();
+            return best;
         }
 
         private static int Spread(List<VideoTitleInfo> titles)

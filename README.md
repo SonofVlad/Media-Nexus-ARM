@@ -6,17 +6,27 @@
 
 Media Nexus ARM is a Windows automatic ripping machine for movies, TV series, music CDs, and audiobooks across multiple optical drives.
 
-## Current v0.2 features
+## Current features
 
 - Remembers any number of user-selected optical drives; tested around a seven-drive layout
-- Requires an explicit per-drive Movie / TV Series / Music / Book selection before starting
-- Defaults every drive to None and resets it to None after disc removal
+- Requires an explicit per-drive Movie / TV Series / Music / Audiobook selection before starting
+- Lets users hide unused media types from both dropdowns and the Change all toolbar
+- Provides a recent-job History screen derived directly from the existing log files
+- Defaults every drive to Media Type and waits for an explicit selection
+- Provides a consolidated Settings screen with remembered Light and Dark themes
+- Supports configurable automatic eject behavior and optional success/failure sounds
+- Includes lightweight diagnostics for MakeMKV, fre:ac, output storage, free space, and optical drives
+- Retains logs for 30 days and provides an Open Logs action
+- Provides per-drive Stop and Eject actions; Stop cancels without ejecting and resets the media type
 - Selects a probable main feature for movies instead of copying every title
+- Automatically starts clear, high-confidence movie selections while retaining the title chooser for ambiguous discs
 - Clusters similarly timed episode titles while excluding likely Play All and short extras
+- Scores TV episodes primarily by runtime and chapter similarity, detects Play All by summed runtimes, and does not reject shared segment maps
+- Supports an optional expected-episode count in the TV title confirmation screen
 - Shows a pre-rip title confirmation table with runtime, size, chapters, playlist, segment map, and composite warnings
 - Detects longer composite Blu-ray playlists that contain a coherent feature playlist (including the tested Deja Vu structure)
-- Offers safe post-rip Plex naming for movies and sequential TV episodes
-- Can retrieve TV show identity, year, and episode names from TVMaze without an account or API key
+- Names movie folders and files from the edited disc name
+- Places TV rips in a folder matching the edited disc name while preserving MakeMKV's original episode filenames
 - Runs independent MakeMKV and audio jobs concurrently
 - Throttles UI rendering and avoids polling busy drives to remain responsive during multi-disc sessions
 - Downloads and validates the official portable fre:ac 1.1.7 engine on first audio rip
@@ -25,7 +35,8 @@ Media Nexus ARM is a Windows automatic ripping machine for movies, TV series, mu
 - Retrieves MusicBrainz release/track metadata and Cover Art Archive artwork
 - Embeds tags and artwork, then organizes music as `Music\Artist\Album (Year)\01 - Track.m4a`
 - Preserves successful audio under `Pending Metadata` when identification is unavailable
-- Shows independent status and progress per drive and ejects every completed/failed disc
+- Shows independent status and progress per drive; automatic eject is disabled in the current testing build
+- Allows movie and TV disc names to be edited in the drive table while ripping and uses the edited name during post-rip naming
 - Produces per-job logs and retains recoverable staging files when final processing fails
 
 ## Requirements
@@ -43,7 +54,7 @@ No iTunes, MusicBrainz Picard, fre:ac installation, FFmpeg, Python, or API key i
 2. Install MakeMKV.
 3. Run `Media-Nexus-ARM.exe`.
 4. Select the optical drives to manage and an output folder.
-5. Insert a disc, then select Movie, TV Series, Music, or Book for that drive.
+5. Insert a disc, then select Movie, TV Series, Music, or Audiobook for that drive.
 6. Insert discs.
 
 The application is portable and does not create an installer or automatic-start entry.
@@ -87,7 +98,7 @@ The result is `dist\Media-Nexus-ARM.exe`. TagLibSharp is embedded in the executa
 
 ## Video naming
 
-After ripping, Movie mode can create `Movies\Title (Year)\Title (Year).mkv`. TV mode asks for the show, season, and first episode, can fill episode names from TVMaze, and creates `TV Shows\Show (Year)\Season 03\Show (Year) - S03E05 - Episode.mkv`. Choosing **Keep Original Names** preserves the raw MakeMKV folder.
+After ripping, Movie mode creates `Movies\<Disc Name>\<Disc Name>.mkv`. TV mode creates `TV Shows\<Disc Name>\` and preserves MakeMKV's original filenames. Edit the Disc field before the rip finishes to control the final folder name.
 
 The downloadable local IMDb search database remains a roadmap item. Movie title and year confirmation is currently user-assisted; Media Nexus does not silently invent a movie match or place database IDs in visible names.
 
