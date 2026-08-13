@@ -583,7 +583,7 @@ namespace DiscRipper
                 {
                     int wholeDiscPercent = Math.Min(99, ((titlesDoneAtStart * 100) + percent) / titleIds.Count);
                     QueueProgress(row, wholeDiscPercent);
-                }, kind == MediaKind.Movie);
+                }, true);
                 File.AppendAllText(logPath, result.Output, Encoding.UTF8);
                 bool copied = result.Output.IndexOf("Copy complete", StringComparison.OrdinalIgnoreCase) >= 0 ||
                               (result.ExitCode == 0 && Directory.GetFiles(outDir, "*.mkv").Length > filesBefore.Count);
