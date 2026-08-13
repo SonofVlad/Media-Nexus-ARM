@@ -115,7 +115,7 @@ namespace DiscRipper
 
         private void OpenSettings(object sender, EventArgs e)
         {
-            using (var dialog = new SettingsForm(ConfigureDrives, ConfigureOutputFolder, ConfigureLayout, ConfigureMediaTypes, ConfigureAudioEngine, ConfigureTheme, ConfigureBehavior, ShowDiagnostics, ShowHistory, OpenLogs, ResetSettings))
+            using (var dialog = new SettingsForm(ConfigureDrives, ConfigureOutputFolder, ConfigureLayout, ConfigureMediaTypes, ConfigureAudioEngine, ConfigureTheme, ConfigureBehavior, ShowDiagnostics, OpenLogs, ResetSettings))
                 dialog.ShowDialog(this);
         }
 
@@ -131,6 +131,8 @@ namespace DiscRipper
             settingsButton.Click += OpenSettings; toolbar.Controls.Add(settingsButton);
             var openButton = new Button { Text = "Open Output", AutoSize = true };
             openButton.Click += (s, e) => OpenFolder(outputRoot); toolbar.Controls.Add(openButton);
+            var historyButton = new Button { Text = "History", AutoSize = true };
+            historyButton.Click += ShowHistory; toolbar.Controls.Add(historyButton);
             toolbar.ResumeLayout(); ThemeSettings.Apply(toolbar);
         }
 
@@ -947,14 +949,14 @@ namespace DiscRipper
 
     internal sealed class SettingsForm : Form
     {
-        public SettingsForm(EventHandler configureDrives, EventHandler configureOutput, EventHandler configureLayout, EventHandler configureMediaTypes, EventHandler configureAudio, EventHandler configureTheme, EventHandler configureBehavior, EventHandler diagnostics, EventHandler history, EventHandler logs, EventHandler reset)
+        public SettingsForm(EventHandler configureDrives, EventHandler configureOutput, EventHandler configureLayout, EventHandler configureMediaTypes, EventHandler configureAudio, EventHandler configureTheme, EventHandler configureBehavior, EventHandler diagnostics, EventHandler logs, EventHandler reset)
         {
             Text = "Media Nexus ARM - Settings"; StartPosition = FormStartPosition.CenterParent;
             Font = new Font("Segoe UI", 9F); FormBorderStyle = FormBorderStyle.FixedDialog;
-            MaximizeBox = false; MinimizeBox = false; ClientSize = new Size(590, 710);
-            var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(18), ColumnCount = 1, RowCount = 13 };
+            MaximizeBox = false; MinimizeBox = false; ClientSize = new Size(590, 660);
+            var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(18), ColumnCount = 1, RowCount = 12 };
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            for (int i = 1; i <= 11; i++) root.RowStyles.Add(new RowStyle(SizeType.Percent, 9));
+            for (int i = 1; i <= 10; i++) root.RowStyles.Add(new RowStyle(SizeType.Percent, 10));
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             root.Controls.Add(new Label { Text = "Settings", Font = new Font("Segoe UI", 15F, FontStyle.Bold), AutoSize = true, Padding = new Padding(0, 0, 0, 10) }, 0, 0);
             AddSettingButton(root, 1, "Optical Drives", "Choose which connected optical drives Media Nexus ARM manages.", configureDrives);
@@ -965,12 +967,11 @@ namespace DiscRipper
             AddSettingButton(root, 6, "Appearance", "Choose the Light or Dark application theme.", configureTheme);
             AddSettingButton(root, 7, "Completion Behavior", "Choose automatic eject behavior and completion sounds.", configureBehavior);
             AddSettingButton(root, 8, "Diagnostics and About", "Check dependencies, output storage, version, and selected drives.", diagnostics);
-            AddSettingButton(root, 9, "History", "Review recent jobs using the existing log files.", history);
-            AddSettingButton(root, 10, "Logs", "Open the lightweight job-log folder.", logs);
-            AddSettingButton(root, 11, "Reset Settings", "Restore application settings to defaults.", reset);
+            AddSettingButton(root, 9, "Logs", "Open the lightweight job-log folder.", logs);
+            AddSettingButton(root, 10, "Reset Settings", "Restore application settings to defaults.", reset);
             var closeRow = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Padding = new Padding(0, 12, 0, 0) };
             var close = new Button { Text = "Close", DialogResult = DialogResult.OK, AutoSize = true };
-            closeRow.Controls.Add(close); root.Controls.Add(closeRow, 0, 12); Controls.Add(root); AcceptButton = close; CancelButton = close;
+            closeRow.Controls.Add(close); root.Controls.Add(closeRow, 0, 11); Controls.Add(root); AcceptButton = close; CancelButton = close;
             ThemeSettings.Apply(this);
         }
 
