@@ -103,7 +103,7 @@ namespace DiscRipper
             root.Controls.Add(toolbar, 0, 0);
 
             var gridHost = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
-            driveGrid = new TableLayoutPanel { Location = new Point(0, 0), Anchor = AnchorStyles.Top | AnchorStyles.Left, AutoSize = false, BackColor = Color.FromArgb(218, 218, 218), ColumnCount = 6, RowCount = 1, CellBorderStyle = TableLayoutPanelCellBorderStyle.Single, GrowStyle = TableLayoutPanelGrowStyle.FixedSize };
+            driveGrid = new ThickBorderTableLayoutPanel { BorderThickness = 3, Location = new Point(0, 0), Anchor = AnchorStyles.Top | AnchorStyles.Left, AutoSize = false, BackColor = Color.FromArgb(218, 218, 218), ColumnCount = 6, RowCount = 1, CellBorderStyle = TableLayoutPanelCellBorderStyle.None, GrowStyle = TableLayoutPanelGrowStyle.FixedSize };
             driveGridFrame = new Panel { Location = new Point(0, 0), Anchor = AnchorStyles.Top | AnchorStyles.Left, BackColor = SystemColors.ControlDark, Padding = new Padding(1) };
             for (int i = 0; i < 6; i++) driveGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, layoutSettings.ColumnWidths[i]));
             driveGrid.Location = new Point(1, 1);
@@ -212,6 +212,7 @@ namespace DiscRipper
             AddHeader(driveGrid, 0, "Drive"); AddHeader(driveGrid, 1, "Device"); AddHeader(driveGrid, 2, "Disc");
             AddHeader(driveGrid, 3, "Media Type"); AddHeader(driveGrid, 4, "Status"); AddHeader(driveGrid, 5, "Action");
             foreach (var drive in selectedDrives.OrderBy(d => d.Letter)) AddDriveRow(driveGrid, drive.Letter, drive.Name);
+            ApplyGridGutters();
             UpdateGridBounds();
             driveGrid.ResumeLayout();
             footer.Text = (selectedDrives.Count == 0 ? "No selected drives are currently connected. Use Configure drives." :
@@ -285,6 +286,16 @@ namespace DiscRipper
             grid.Controls.Add(driveLabel, 0, rowIndex); grid.Controls.Add(deviceLabel, 1, rowIndex); grid.Controls.Add(discLabel, 2, rowIndex);
             actionPanel.Controls.Add(stop, 0, 0); actionPanel.Controls.Add(eject, 1, 0);
             grid.Controls.Add(type, 3, rowIndex); grid.Controls.Add(statusPanel, 4, rowIndex); grid.Controls.Add(actionPanel, 5, rowIndex);
+        }
+
+        private void ApplyGridGutters()
+        {
+            const int line = 3;
+            foreach (Control control in driveGrid.Controls)
+            {
+                TableLayoutPanelCellPosition position = driveGrid.GetPositionFromControl(control);
+                control.Margin = new Padding(line, line, position.Column == driveGrid.ColumnCount - 1 ? line : 0, position.Row == driveGrid.RowCount - 1 ? line : 0);
+            }
         }
 
         private void StopRip(DriveRow row)
@@ -804,6 +815,25 @@ namespace DiscRipper
             if (h == new IntPtr(-1)) return;
             try { uint returned; DeviceIoControl(h, IOCTL_STORAGE_EJECT_MEDIA, IntPtr.Zero, 0, IntPtr.Zero, 0, out returned, IntPtr.Zero); }
             finally { CloseHandle(h); }
+        }
+    }
+
+    internal sealed class ThickBorderTableLayoutPanel : TableLayoutPanel
+    {
+        public int BorderThickness { get; set; }
+        public ThickBorderTableLayoutPanel() { DoubleBuffered = true; BorderThickness = 3; }
+        protected override void OnCellPaint(TableLayoutCellPaintEventArgs e)
+        {
+            base.OnCellPaint(e);
+            int thickness = Math.Max(1, BorderThickness);
+            Color line = ThemeSettings.IsDark() ? Color.FromArgb(115, 115, 120) : Color.FromArgb(125, 125, 125);
+            using (var brush = new SolidBrush(line))
+            {
+                e.Graphics.FillRectangle(brush, e.CellBounds.Left, e.CellBounds.Top, thickness, e.CellBounds.Height);
+                e.Graphics.FillRectangle(brush, e.CellBounds.Left, e.CellBounds.Top, e.CellBounds.Width, thickness);
+                if (e.Column == ColumnCount - 1) e.Graphics.FillRectangle(brush, e.CellBounds.Right - thickness, e.CellBounds.Top, thickness, e.CellBounds.Height);
+                if (e.Row == RowCount - 1) e.Graphics.FillRectangle(brush, e.CellBounds.Left, e.CellBounds.Bottom - thickness, e.CellBounds.Width, thickness);
+            }
         }
     }
 
