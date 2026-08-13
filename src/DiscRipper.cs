@@ -724,7 +724,8 @@ namespace DiscRipper
         private void SetStatus(DriveRow row, string text, Color color)
         {
             if (row.StatusLabel.Text != text) row.StatusLabel.Text = text;
-            if (row.StatusLabel.ForeColor != color) row.StatusLabel.ForeColor = color;
+            Color themedText = ThemeSettings.IsDark() ? Color.White : Color.Black;
+            if (row.StatusLabel.ForeColor != themedText) row.StatusLabel.ForeColor = themedText;
         }
         private void QueueProgress(DriveRow row, int value)
         {
@@ -924,17 +925,25 @@ namespace DiscRipper
         {
             Color back = dark ? Color.FromArgb(32, 32, 32) : SystemColors.Control;
             Color surface = dark ? Color.FromArgb(45, 45, 48) : SystemColors.Window;
-            Color fore = dark ? Color.Gainsboro : SystemColors.ControlText;
+            Color fore = dark ? Color.White : Color.Black;
             root.BackColor = root is TextBox || root is ComboBox || root is CheckedListBox || root is DataGridView ? surface : back;
             root.ForeColor = fore;
             var button = root as Button;
-            if (button != null && dark)
+            if (button != null)
             {
-                button.UseVisualStyleBackColor = false;
-                button.FlatStyle = FlatStyle.Flat;
-                button.BackColor = button.Enabled ? Color.FromArgb(70, 70, 74) : Color.FromArgb(56, 56, 59);
-                button.ForeColor = button.Enabled ? Color.White : Color.Silver;
-                button.FlatAppearance.BorderColor = Color.FromArgb(125, 125, 130);
+                button.ForeColor = fore;
+                if (dark)
+                {
+                    button.UseVisualStyleBackColor = false;
+                    button.FlatStyle = FlatStyle.Flat;
+                    button.BackColor = button.Enabled ? Color.FromArgb(70, 70, 74) : Color.FromArgb(56, 56, 59);
+                    button.FlatAppearance.BorderColor = Color.FromArgb(125, 125, 130);
+                }
+                else
+                {
+                    button.UseVisualStyleBackColor = true;
+                    button.FlatStyle = FlatStyle.Standard;
+                }
             }
             var grid = root as DataGridView;
             if (grid != null)
@@ -943,6 +952,7 @@ namespace DiscRipper
                 grid.DefaultCellStyle.BackColor = surface; grid.DefaultCellStyle.ForeColor = fore;
                 grid.ColumnHeadersDefaultCellStyle.BackColor = dark ? Color.FromArgb(55, 55, 58) : SystemColors.Control;
                 grid.ColumnHeadersDefaultCellStyle.ForeColor = fore; grid.EnableHeadersVisualStyles = !dark;
+                foreach (DataGridViewRow row in grid.Rows) row.DefaultCellStyle.ForeColor = fore;
             }
             foreach (Control child in root.Controls) Apply(child, dark);
         }
