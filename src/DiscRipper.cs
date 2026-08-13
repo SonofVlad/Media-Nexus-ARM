@@ -280,12 +280,27 @@ namespace DiscRipper
                 item.ManualTypeSelected = SelectedKind(item) != MediaKind.Choose;
                 PollDrive(item);
             };
+            discLabel.KeyDown += (s, e) =>
+            {
+                if (e.KeyCode != Keys.Up && e.KeyCode != Keys.Down) return;
+                MoveDiscEditor(item, e.KeyCode == Keys.Up ? -1 : 1);
+                e.Handled = true; e.SuppressKeyPress = true;
+            };
             stop.Click += (s, e) => StopRip(item);
             eject.Click += (s, e) => Eject(item.Letter);
             rows[letter] = item;
             grid.Controls.Add(driveLabel, 0, rowIndex); grid.Controls.Add(deviceLabel, 1, rowIndex); grid.Controls.Add(discLabel, 2, rowIndex);
             actionPanel.Controls.Add(stop, 0, 0); actionPanel.Controls.Add(eject, 1, 0);
             grid.Controls.Add(type, 3, rowIndex); grid.Controls.Add(statusPanel, 4, rowIndex); grid.Controls.Add(actionPanel, 5, rowIndex);
+        }
+
+        private void MoveDiscEditor(DriveRow current, int direction)
+        {
+            List<DriveRow> ordered = rows.Values.OrderBy(r => r.Letter, StringComparer.OrdinalIgnoreCase).ToList();
+            int index = ordered.IndexOf(current), target = index + direction;
+            if (index < 0 || target < 0 || target >= ordered.Count) return;
+            ordered[target].DiscLabel.Focus();
+            ordered[target].DiscLabel.SelectAll();
         }
 
         private void ApplyGridGutters()
