@@ -26,7 +26,7 @@ Media Nexus ARM is a Windows automatic ripping machine for movies, TV series, mu
 - One or more optical drives
 - Internet access for the first music rip and music metadata/artwork
 
-No iTunes, MusicBrainz Picard, fre:ac installation, FFmpeg, Python, or API key is required. Media Nexus ARM manages a private portable fre:ac copy under `%LOCALAPPDATA%\Media Nexus ARM\Data\Tools\freac`.
+No iTunes, MusicBrainz Picard, fre:ac installation, FFmpeg, Python, or API key is required. Media Nexus ARM stores its managed data under `%LOCALAPPDATA%\Media Nexus\ARM`, including a private portable fre:ac copy in `Tools\freac`.
 
 ## Download and run
 
