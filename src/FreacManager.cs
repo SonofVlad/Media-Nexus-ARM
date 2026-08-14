@@ -20,7 +20,13 @@ namespace DiscRipper
         private const string StableSha256 = "EF45665AAE6C1C0EB4C0ECD8ECC6BED24F02F3CDDF6CFD72D8E5C9BC858BF110";
         private static readonly SemaphoreSlim InstallGate = new SemaphoreSlim(1, 1);
         private readonly string root;
-        public FreacManager() { root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Media Nexus ARM", "Data", "Tools", "freac"); }
+        public FreacManager()
+        {
+            string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            string dataRoot = Path.Combine(local, "Media Nexus", "ARM");
+            MigrateLegacyDataRoot(Path.Combine(local, "Media Nexus ARM", "Data"), dataRoot);
+            root = Path.Combine(dataRoot, "Tools", "freac");
+        }
         public string ExecutablePath { get { return Path.Combine(root, "current", "freaccmd.exe"); } }
         public string InstalledVersion { get { string file = Path.Combine(root, "current", "version.txt"); return File.Exists(file) ? File.ReadAllText(file).Trim() : "Not installed"; } }
         public string LatestStableVersion { get { return StableVersion; } }
@@ -115,7 +121,7 @@ namespace DiscRipper
             return Task.Run(() =>
             {
                 ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
-                var request = (HttpWebRequest)WebRequest.Create(url); request.UserAgent = "Media-Nexus-ARM/0.7.13"; request.AllowAutoRedirect = true;
+                var request = (HttpWebRequest)WebRequest.Create(url); request.UserAgent = "Media-Nexus-ARM/0.7.14"; request.AllowAutoRedirect = true;
                 using (token.Register(() => request.Abort())) using (var response = request.GetResponse()) using (Stream input = response.GetResponseStream()) using (FileStream output = File.Create(target)) input.CopyTo(output);
             }, token);
         }
@@ -133,6 +139,19 @@ namespace DiscRipper
         }
         private static void CopyDirectory(string source, string destination) { foreach (string directory in Directory.GetDirectories(source, "*", SearchOption.AllDirectories)) Directory.CreateDirectory(directory.Replace(source, destination)); Directory.CreateDirectory(destination); foreach (string file in Directory.GetFiles(source, "*", SearchOption.AllDirectories)) File.Copy(file, file.Replace(source, destination), true); }
         private static void DeleteDirectory(string path) { try { if (Directory.Exists(path)) Directory.Delete(path, true); } catch { } }
+        private static void MigrateLegacyDataRoot(string legacyRoot, string dataRoot)
+        {
+            try
+            {
+                if (!Directory.Exists(legacyRoot)) return;
+                Directory.CreateDirectory(Path.GetDirectoryName(dataRoot));
+                if (!Directory.Exists(dataRoot)) Directory.Move(legacyRoot, dataRoot);
+                else { CopyDirectory(legacyRoot, dataRoot); Directory.Delete(legacyRoot, true); }
+                string legacyParent = Path.GetDirectoryName(legacyRoot);
+                if (Directory.Exists(legacyParent) && !Directory.EnumerateFileSystemEntries(legacyParent).Any()) Directory.Delete(legacyParent);
+            }
+            catch { }
+        }
         private static string Quote(string value) { return "\"" + value.Replace("\"", "\\\"") + "\""; }
     }
 
