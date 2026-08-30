@@ -24,7 +24,7 @@ namespace DiscRipper
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); root.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             root.Controls.Add(new Label { Text = "Drive " + drive + " - " + (movie ? "Confirm the main feature. Composite playlists are not selected automatically." : "Confirm the individual episode playlists. Play All and likely extras should remain unchecked."), AutoSize = true, Padding = new Padding(0, 0, 0, 8) });
             ConfigureGrid(); root.Controls.Add(grid, 0, 1);
-            IList<VideoTitleInfo> ordered = (movie ? (IEnumerable<VideoTitleInfo>)DiscAnalyzer.RankMovieCandidates(titles) : titles.Where(t => t.DurationSeconds >= 600).OrderBy(t => t.Id)).ToList();
+            IList<VideoTitleInfo> ordered = (movie ? (IEnumerable<VideoTitleInfo>)DiscAnalyzer.RankMovieCandidates(titles) : titles.Where(t => t.DurationSeconds >= DiscAnalyzer.ManualSelectionMinimumSeconds).OrderBy(t => t.Id)).ToList();
             List<int> suggested = movie ? ordered.Where(t => !t.Composite).Take(1).Select(t => t.Id).ToList() : DiscAnalyzer.SelectTvTitles(titles);
             foreach (VideoTitleInfo title in ordered)
             {

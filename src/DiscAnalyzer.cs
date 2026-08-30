@@ -7,6 +7,8 @@ namespace DiscRipper
 {
     internal static class DiscAnalyzer
     {
+        public const int ManualSelectionMinimumSeconds = 300;
+
         public static DiscAnalysis AnalyzeAudio(DiscToc toc)
         {
             return new DiscAnalysis
@@ -91,13 +93,13 @@ namespace DiscRipper
 
         public static List<VideoTitleInfo> RankMovieCandidates(IEnumerable<VideoTitleInfo> source)
         {
-            List<VideoTitleInfo> candidates = source.Where(t => t.DurationSeconds >= 3600).ToList();
+            List<VideoTitleInfo> candidates = source.Where(t => t.DurationSeconds >= ManualSelectionMinimumSeconds).ToList();
             MarkCompositeTitles(candidates);
             foreach (VideoTitleInfo title in candidates)
             {
                 title.SelectionReason = title.Composite ? "Composite playlist; probably includes feature plus other material" :
                     candidates.Any(other => other.Id != title.Id && ContainsSegments(other, title) && other.DurationSeconds > title.DurationSeconds * 1.15) ? "Feature playlist contained in a longer composite" :
-                    "Feature-length candidate";
+                    title.DurationSeconds >= 3600 ? "Feature-length candidate" : "Short-form movie or special candidate";
             }
             return candidates.OrderBy(t => t.Composite).ThenByDescending(t => t.DurationSeconds >= 4500).ThenByDescending(t => t.SizeBytes).ToList();
         }

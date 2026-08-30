@@ -54,7 +54,7 @@ namespace DiscRipper
     internal sealed class MainForm : Form
     {
         private const int GridRowHeight = 44;
-        private const int MinLengthSeconds = 600;
+        private const int MinLengthSeconds = DiscAnalyzer.ManualSelectionMinimumSeconds;
         private readonly Dictionary<string, DriveRow> rows = new Dictionary<string, DriveRow>();
         private readonly System.Windows.Forms.Timer pollTimer = new System.Windows.Forms.Timer();
         private readonly FreacManager freac = new FreacManager();
@@ -550,6 +550,8 @@ namespace DiscRipper
 
         private Task<List<int>> SelectVideoTitles(string driveLetter, MediaKind kind, IList<VideoTitleInfo> titles)
         {
+            if (!titles.Any(t => t.DurationSeconds >= DiscAnalyzer.ManualSelectionMinimumSeconds))
+                throw new InvalidOperationException("MakeMKV found no titles longer than five minutes on this disc.");
             var completion = new TaskCompletionSource<List<int>>();
             Ui(() =>
             {
