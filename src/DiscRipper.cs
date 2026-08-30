@@ -714,7 +714,7 @@ namespace DiscRipper
                 try { if (Directory.Exists(tvOriginal) && !Directory.EnumerateFileSystemEntries(tvOriginal).Any()) Directory.Delete(tvOriginal); } catch { }
                 return tvFinal;
             }
-            string final = VideoOrganizer.OrganizeMovieFromDiscName(rippedFiles[0], outputRoot, discName, log);
+            string final = VideoOrganizer.OrganizeMoviesFromDiscName(rippedFiles, outputRoot, discName, log);
             string original = Path.GetDirectoryName(rippedFiles[0]);
             try { if (Directory.Exists(original) && !Directory.EnumerateFileSystemEntries(original).Any()) Directory.Delete(original); } catch { }
             return final;

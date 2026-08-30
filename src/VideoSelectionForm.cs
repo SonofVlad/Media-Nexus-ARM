@@ -22,7 +22,7 @@ namespace DiscRipper
             StartPosition = FormStartPosition.CenterParent; Font = new Font("Segoe UI", 9F); Size = new Size(1050, 500); MinimumSize = new Size(850, 400);
             var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(12), RowCount = 3, ColumnCount = 1 };
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); root.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            root.Controls.Add(new Label { Text = "Drive " + drive + " - " + (movie ? "Confirm the main feature. Composite playlists are not selected automatically." : "Confirm the individual episode playlists. Play All and likely extras should remain unchecked."), AutoSize = true, Padding = new Padding(0, 0, 0, 8) });
+            root.Controls.Add(new Label { Text = "Drive " + drive + " - " + (movie ? "Select one or more movie features. Composite playlists are not selected automatically." : "Confirm the individual episode playlists. Play All and likely extras should remain unchecked."), AutoSize = true, Padding = new Padding(0, 0, 0, 8) });
             ConfigureGrid(); root.Controls.Add(grid, 0, 1);
             IList<VideoTitleInfo> ordered = (movie ? (IEnumerable<VideoTitleInfo>)DiscAnalyzer.RankMovieCandidates(titles) : titles.Where(t => t.DurationSeconds >= DiscAnalyzer.ManualSelectionMinimumSeconds).OrderBy(t => t.Id)).ToList();
             List<int> suggested = movie ? ordered.Where(t => !t.Composite).Take(1).Select(t => t.Id).ToList() : DiscAnalyzer.SelectTvTitles(titles);
@@ -44,20 +44,13 @@ namespace DiscRipper
                 buttons.Controls.Add(recalculate); buttons.Controls.Add(expected);
                 buttons.Controls.Add(new Label { Text = "Expected episodes (0 = automatic):", AutoSize = true, Padding = new Padding(0, 7, 3, 0) });
             }
-            bool initiallySelected = grid.Rows.Cast<DataGridViewRow>().Any(r => Convert.ToBoolean(r.Cells[0].Value));
             bool initiallyAll = grid.Rows.Count > 0 && grid.Rows.Cast<DataGridViewRow>().All(r => Convert.ToBoolean(r.Cells[0].Value));
-            var toggleAll = new Button { Text = (movie ? initiallySelected : initiallyAll) ? "Deselect All" : "Select All", AutoSize = true, Margin = new Padding(3, 3, 20, 3) };
+            var toggleAll = new Button { Text = initiallyAll ? "Deselect All" : "Select All", AutoSize = true, Margin = new Padding(3, 3, 20, 3) };
             toggleAll.Click += (s, e) =>
             {
-                bool any = grid.Rows.Cast<DataGridViewRow>().Any(r => Convert.ToBoolean(r.Cells[0].Value));
                 bool all = grid.Rows.Count > 0 && grid.Rows.Cast<DataGridViewRow>().All(r => Convert.ToBoolean(r.Cells[0].Value));
-                bool select = movie ? !any : !all;
-                foreach (DataGridViewRow row in grid.Rows) row.Cells[0].Value = false;
-                if (movie && select)
-                {
-                    if (grid.Rows.Count > 0) grid.Rows[0].Cells[0].Value = true;
-                }
-                else if (!movie) foreach (DataGridViewRow row in grid.Rows) row.Cells[0].Value = select;
+                bool select = !all;
+                foreach (DataGridViewRow row in grid.Rows) row.Cells[0].Value = select;
                 toggleAll.Text = select ? "Deselect All" : "Select All";
             };
             buttons.Controls.Add(toggleAll); root.Controls.Add(buttons, 0, 2); Controls.Add(root); AcceptButton = rip; CancelButton = cancel; ThemeSettings.Apply(this);
@@ -86,14 +79,12 @@ namespace DiscRipper
             grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Playlist", Width = 95, ReadOnly = true });
             grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Segments", Width = 260, ReadOnly = true });
             grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Assessment", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, ReadOnly = true });
-            if (movie) grid.CellContentClick += (s, e) => { if (e.ColumnIndex != 0 || e.RowIndex < 0) return; grid.CommitEdit(DataGridViewDataErrorContexts.Commit); for (int i = 0; i < grid.Rows.Count; i++) if (i != e.RowIndex) grid.Rows[i].Cells[0].Value = false; };
         }
 
         private void RipClicked(object sender, EventArgs e)
         {
             SelectedTitleIds = grid.Rows.Cast<DataGridViewRow>().Where(r => Convert.ToBoolean(r.Cells[0].Value)).Select(r => Convert.ToInt32(r.Cells[1].Value)).ToList();
             if (SelectedTitleIds.Count == 0) { MessageBox.Show(this, "Select at least one title.", "Media Nexus ARM", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
-            if (movie && SelectedTitleIds.Count != 1) { MessageBox.Show(this, "Select exactly one main feature.", "Media Nexus ARM", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
             DialogResult = DialogResult.OK; Close();
         }
     }

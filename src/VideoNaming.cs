@@ -53,8 +53,17 @@ namespace DiscRipper
         }
         public static string OrganizeMovieFromDiscName(string source, string outputRoot, string discName, Action<string> log)
         {
+            return OrganizeMoviesFromDiscName(new[] { source }, outputRoot, discName, log);
+        }
+        public static string OrganizeMoviesFromDiscName(IList<string> sources, string outputRoot, string discName, Action<string> log)
+        {
             string baseName = MusicOrganizer.SafeName(discName); string folder = UniqueFolder(Path.Combine(outputRoot, "Movies", baseName)); Directory.CreateDirectory(folder);
-            string target = Path.Combine(folder, baseName + ".mkv"); SafeMove(source, target); if (log != null) log(source + " -> " + target); return folder;
+            for (int i = 0; i < sources.Count; i++)
+            {
+                string fileName = sources.Count == 1 ? baseName + ".mkv" : baseName + " - Movie " + (i + 1).ToString("00") + ".mkv";
+                string target = Path.Combine(folder, fileName); SafeMove(sources[i], target); if (log != null) log(sources[i] + " -> " + target);
+            }
+            return folder;
         }
         public static string OrganizeTvOriginalNames(IList<string> sources, string outputRoot, string discName, Action<string> log)
         {
