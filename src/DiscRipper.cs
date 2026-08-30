@@ -9,6 +9,8 @@ using System.Media;
 using Microsoft.Win32;
 using System.Runtime.InteropServices;
 using System.Reflection;
+using System.Net;
+using System.Web.Script.Serialization;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -139,7 +141,7 @@ namespace DiscRipper
 
         private void OpenSettings(object sender, EventArgs e)
         {
-            using (var dialog = new SettingsForm(ConfigureDrives, ConfigureOutputFolder, ConfigureLayout, ConfigureMediaTypes, ConfigureAudioEngine, ConfigureTheme, ConfigureBehavior, ShowDiagnostics, OpenLogs, ResetSettings))
+            using (var dialog = new SettingsForm(ConfigureDrives, ConfigureOutputFolder, ConfigureLayout, ConfigureMediaTypes, ConfigureAudioEngine, ConfigureTheme, ConfigureBehavior, ShowDiagnostics, OpenLogs, CheckForUpdates, ResetSettings))
                 dialog.ShowDialog(this);
         }
 
@@ -186,6 +188,42 @@ namespace DiscRipper
         }
 
         private void ShowDiagnostics(object sender, EventArgs e) { using (var dialog = new DiagnosticsForm(outputRoot, makeMkv, freac, rows.Values.ToList())) dialog.ShowDialog(DialogOwner(sender)); }
+        private async void CheckForUpdates(object sender, EventArgs e)
+        {
+            Button button = sender as Button;
+            if (button != null) button.Enabled = false;
+            try
+            {
+                var latest = await Task.Run(() =>
+                {
+                    ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
+                    var request = (HttpWebRequest)WebRequest.Create("https://api.github.com/repos/SonofVlad/Media-Nexus-ARM/releases/latest");
+                    request.UserAgent = "Media-Nexus-ARM/" + Assembly.GetExecutingAssembly().GetName().Version.ToString(3);
+                    request.Accept = "application/vnd.github+json";
+                    using (var response = request.GetResponse())
+                    using (var reader = new StreamReader(response.GetResponseStream()))
+                    {
+                        var data = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(reader.ReadToEnd());
+                        return new { Tag = Convert.ToString(data["tag_name"]), Url = Convert.ToString(data["html_url"]) };
+                    }
+                });
+                Version current = Assembly.GetExecutingAssembly().GetName().Version;
+                Version available;
+                if (!Version.TryParse((latest.Tag ?? "").Trim().TrimStart('v', 'V'), out available)) throw new InvalidOperationException("GitHub returned an invalid release version.");
+                if (available <= current)
+                {
+                    MessageBox.Show(DialogOwner(sender), "You are running the latest version (v" + current.ToString(3) + ").", "Media Nexus ARM - Updates", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+                if (MessageBox.Show(DialogOwner(sender), "Media Nexus ARM v" + available.ToString(3) + " is available. Open the GitHub release page?", "Update Available", MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
+                    Process.Start(new ProcessStartInfo { FileName = latest.Url, UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(DialogOwner(sender), "Could not check for updates.\n\n" + ex.Message, "Media Nexus ARM - Updates", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+            finally { if (button != null && !button.IsDisposed) button.Enabled = true; }
+        }
         private void ShowHistory(object sender, EventArgs e) { using (var dialog = new HistoryForm(outputRoot)) dialog.ShowDialog(DialogOwner(sender)); }
         private void OpenLogs(object sender, EventArgs e) { OpenFolder(Path.Combine(outputRoot, "Logs")); }
         private void ResetSettings(object sender, EventArgs e)
@@ -1004,7 +1042,7 @@ namespace DiscRipper
 
     internal sealed class SettingsForm : Form
     {
-        public SettingsForm(EventHandler configureDrives, EventHandler configureOutput, EventHandler configureLayout, EventHandler configureMediaTypes, EventHandler configureAudio, EventHandler configureTheme, EventHandler configureBehavior, EventHandler diagnostics, EventHandler logs, EventHandler reset)
+        public SettingsForm(EventHandler configureDrives, EventHandler configureOutput, EventHandler configureLayout, EventHandler configureMediaTypes, EventHandler configureAudio, EventHandler configureTheme, EventHandler configureBehavior, EventHandler diagnostics, EventHandler logs, EventHandler updates, EventHandler reset)
         {
             Text = "Media Nexus ARM - Settings"; StartPosition = FormStartPosition.CenterParent;
             Font = new Font("Segoe UI", 9F); FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -1018,7 +1056,7 @@ namespace DiscRipper
             AddSettingButtons(root, 2, "Interface", "Adjust the window, table columns, and Light or Dark appearance.", "Layout", configureLayout, "Appearance", configureTheme);
             AddSettingButtons(root, 3, "Media and Audio", "Choose visible media types, audio format, and manage the fre:ac engine.", "Media Types", configureMediaTypes, "Audio Engine", configureAudio);
             AddSettingButton(root, 4, "Completion", "Choose automatic eject behavior and pass/fail completion sounds.", "Configure", configureBehavior);
-            AddSettingButton(root, 5, "Support", "Open the lightweight job logs for completed and failed ripping jobs.", "Open Logs", logs);
+            AddSettingButtons(root, 5, "Support", "Check for new releases or open the lightweight ripping-job logs.", "Check Updates", updates, "Open Logs", logs);
             var closeRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, AutoSize = true, Padding = new Padding(0, 12, 0, 0) };
             closeRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); closeRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); closeRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             var resetButton = new Button { Text = "Reset Settings", AutoSize = true, Anchor = AnchorStyles.Left };
