@@ -36,6 +36,7 @@ namespace DiscRipper
         public TextBox DiscLabel;
         public ComboBox TypeBox;
         public Label StatusLabel;
+        public TableLayoutPanel StatusPanel;
         public ProgressBar ProgressBar;
         public Button EjectButton;
         public Button StopButton;
@@ -51,6 +52,7 @@ namespace DiscRipper
         public DateTime FirstSeen;
         public CancellationTokenSource Cancellation;
         public bool StopRequested;
+        public bool LingeringResult;
     }
 
     internal sealed class MainForm : Form
@@ -63,6 +65,8 @@ namespace DiscRipper
         private readonly SemaphoreSlim makeMkvMapGate = new SemaphoreSlim(1, 1);
         private readonly ConcurrentDictionary<string, int> discIndexes = new ConcurrentDictionary<string, int>();
         private readonly Label footer = new Label();
+        private readonly Panel latestEventBanner = new Panel();
+        private readonly Label latestEventLabel = new Label();
         private readonly FlowLayoutPanel toolbar = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = false, Padding = new Padding(0, 0, 0, 8) };
         private readonly TableLayoutPanel driveGrid;
         private readonly Panel driveGridFrame;
@@ -86,7 +90,8 @@ namespace DiscRipper
             Size = new Size(layoutSettings.WindowWidth, layoutSettings.WindowHeight);
             FormClosing += OnClosing;
 
-            var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(12), RowCount = 3, ColumnCount = 1 };
+            var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(12), RowCount = 4, ColumnCount = 1 };
+            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -95,6 +100,9 @@ namespace DiscRipper
             BuildToolbar();
             root.Controls.Add(toolbar, 0, 0);
 
+            BuildLatestEventBanner();
+            root.Controls.Add(latestEventBanner, 0, 1);
+
             gridHost = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
             driveGrid = new ThickBorderTableLayoutPanel { BorderThickness = 3, Location = new Point(0, 0), Anchor = AnchorStyles.Top | AnchorStyles.Left, AutoSize = false, BackColor = Color.FromArgb(218, 218, 218), ColumnCount = 6, RowCount = 1, CellBorderStyle = TableLayoutPanelCellBorderStyle.None, GrowStyle = TableLayoutPanelGrowStyle.FixedSize };
             driveGridFrame = new Panel { Location = new Point(0, 0), Anchor = AnchorStyles.Top | AnchorStyles.Left, BackColor = SystemColors.ControlDark, Padding = new Padding(1) };
@@ -102,13 +110,13 @@ namespace DiscRipper
             driveGrid.Location = new Point(1, 1);
             driveGridFrame.Controls.Add(driveGrid);
             gridHost.Controls.Add(driveGridFrame);
-            root.Controls.Add(gridHost, 0, 1);
+            root.Controls.Add(gridHost, 0, 2);
             RebuildDriveGrid(selectedDrives);
 
             footer.AutoSize = true;
             footer.Padding = new Padding(0, 8, 0, 0);
             footer.Text = "Select a media type for each inserted disc. No rip starts while Media Type is selected.";
-            root.Controls.Add(footer, 0, 2);
+            root.Controls.Add(footer, 0, 3);
 
             pollTimer.Interval = 3000;
             pollTimer.Tick += PollTimerOnTick;
@@ -160,6 +168,22 @@ namespace DiscRipper
             var historyButton = new Button { Text = "History", AutoSize = true };
             historyButton.Click += ShowHistory; toolbar.Controls.Add(historyButton);
             toolbar.ResumeLayout(); ThemeSettings.Apply(toolbar);
+        }
+
+        private void BuildLatestEventBanner()
+        {
+            latestEventBanner.Dock = DockStyle.Fill;
+            latestEventBanner.Height = 38;
+            latestEventBanner.Margin = new Padding(0, 0, 0, 8);
+            latestEventBanner.Visible = false;
+            latestEventLabel.Dock = DockStyle.Fill;
+            latestEventLabel.TextAlign = ContentAlignment.MiddleLeft;
+            latestEventLabel.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+            latestEventLabel.Padding = new Padding(10, 0, 5, 0);
+            var dismiss = new Button { Text = "Dismiss", Dock = DockStyle.Right, Width = 78, Margin = new Padding(4) };
+            dismiss.Click += (s, e) => latestEventBanner.Visible = false;
+            latestEventBanner.Controls.Add(latestEventLabel);
+            latestEventBanner.Controls.Add(dismiss);
         }
 
         private void ConfigureMediaTypes(object sender, EventArgs e)
@@ -368,7 +392,7 @@ namespace DiscRipper
             actionPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50)); actionPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
             var stop = new ThemedButton { Text = "Stop", Dock = DockStyle.Fill, Margin = new Padding(2), Enabled = false };
             var eject = new Button { Text = "Eject", Dock = DockStyle.Fill, Margin = new Padding(2) };
-            var item = new DriveRow { Letter = letter, Device = device, DiscLabel = discLabel, TypeBox = type, StatusLabel = status, ProgressBar = progress, EjectButton = eject, StopButton = stop };
+            var item = new DriveRow { Letter = letter, Device = device, DiscLabel = discLabel, TypeBox = type, StatusLabel = status, StatusPanel = statusPanel, ProgressBar = progress, EjectButton = eject, StopButton = stop };
             type.SelectedIndexChanged += (s, e) =>
             {
                 if (item.SuppressTypeChange || item.Busy) return;
@@ -461,6 +485,7 @@ namespace DiscRipper
                 row.ManualTypeSelected = false;
                 row.FirstSeen = DateTime.MinValue;
                 row.DiscLabel.Text = "Empty";
+                row.LingeringResult = false;
                 if (!row.Busy) { SetType(row, MediaKind.Choose); SetStatus(row, "Waiting for disc", Color.DimGray); SetProgress(row, 0); }
                 return;
             }
@@ -472,6 +497,7 @@ namespace DiscRipper
                 row.DiscLabel.Text = string.IsNullOrWhiteSpace(label) ? "Audio/unknown disc" : label;
             }
             if (newlySeen) { row.Present = true; row.FirstSeen = DateTime.Now; }
+            if (row.LingeringResult) return;
             if (row.AwaitingChoice) return;
             if ((DateTime.Now - row.FirstSeen).TotalSeconds < 4)
             {
@@ -493,6 +519,7 @@ namespace DiscRipper
 
             row.Busy = true;
             row.StopRequested = false;
+            row.LingeringResult = false;
             SetProgress(row, 0);
             row.TypeBox.Enabled = false;
             row.StopButton.Enabled = true;
@@ -501,12 +528,14 @@ namespace DiscRipper
             Task.Run(async () =>
             {
                 bool ok = false;
+                string failureReason = null;
                 try
                 {
                     ok = await AnalyzeAndRip(row, kind, row.Cancellation.Token);
+                    if (!ok) failureReason = kind == MediaKind.Movie || kind == MediaKind.TVSeries ? "MakeMKV saved no complete title" : "audio rip did not complete";
                 }
                 catch (OperationCanceledException) { if (!row.StopRequested) Ui(() => SetStatus(row, "Cancelled", Color.DarkOrange)); }
-                catch (Exception ex) { Ui(() => SetStatus(row, "Failed: " + ex.Message, Color.DarkRed)); }
+                catch (Exception ex) { failureReason = ShortFailureReason(ex.Message); Ui(() => SetStatus(row, "Failed: " + ex.Message, Color.DarkRed)); }
                 finally
                 {
                     bool stopped = row.StopRequested;
@@ -520,12 +549,25 @@ namespace DiscRipper
                         if (row.AwaitingChoice) { row.Busy = false; row.TypeBox.Enabled = true; return; }
                         if (stopped)
                         {
-                            SetProgress(row, 0); SetStatus(row, "Stopped - disc remains inserted", Color.DarkOrange);
+                            SetProgress(row, 0); SetPersistentResult(row, "Stopped", Color.DarkOrange);
+                            ShowLatestEvent("■ Drive " + row.Letter + " stopped: " + SafeName(row.DiscLabel.Text), Color.DarkOrange);
                             row.Busy = false; row.TypeBox.Enabled = true; row.StopButton.Enabled = false;
                             row.ManualTypeSelected = false; SetType(row, MediaKind.Choose); row.StopRequested = false; return;
                         }
                         if (ok) SetProgress(row, 100);
-                        SetStatus(row, ok ? (autoEject ? "Complete - ejected" : "Complete - disc remains inserted") : (autoEject ? "Failed - ejected" : "Failed - disc remains inserted"), ok ? Color.DarkGreen : Color.DarkRed);
+                        else SetProgress(row, 0);
+                        string disc = SafeName(row.DiscLabel.Text);
+                        if (ok)
+                        {
+                            SetPersistentResult(row, "Completed — " + DateTime.Now.ToString("h:mm tt"), Color.DarkGreen);
+                            ShowLatestEvent("✓ Drive " + row.Letter + " completed: " + disc, Color.DarkGreen);
+                        }
+                        else
+                        {
+                            string reason = string.IsNullOrWhiteSpace(failureReason) ? "rip did not complete" : failureReason;
+                            SetPersistentResult(row, "Failed — " + reason, Color.DarkRed);
+                            ShowLatestEvent("✕ Drive " + row.Letter + " failed: " + disc + " — " + reason, Color.DarkRed);
+                        }
                         row.Busy = false;
                         row.TypeBox.Enabled = true;
                         row.StopButton.Enabled = false;
@@ -694,7 +736,9 @@ namespace DiscRipper
             Directory.CreateDirectory(outDir);
             string logDir = Path.Combine(outputRoot, "Logs"); Directory.CreateDirectory(logDir);
             string logPath = Path.Combine(logDir, "makemkv_" + row.Letter + "_" + DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss") + ".log");
-            File.AppendAllText(logPath, "Drive: " + row.Letter + ":" + Environment.NewLine + "Disc: " + discName + Environment.NewLine + "Detected type: " + DisplayName(kind) + Environment.NewLine + "Selected MakeMKV titles: " + string.Join(",", analysis.SelectedTitleIds) + Environment.NewLine, Encoding.UTF8);
+            try
+            {
+                File.AppendAllText(logPath, "Drive: " + row.Letter + ":" + Environment.NewLine + "Disc: " + discName + Environment.NewLine + "Detected type: " + DisplayName(kind) + Environment.NewLine + "Selected MakeMKV titles: " + string.Join(",", analysis.SelectedTitleIds) + Environment.NewLine, Encoding.UTF8);
 
             var titleIds = analysis.SelectedTitleIds.Distinct().ToList();
             if (titleIds.Count == 0) throw new InvalidOperationException(kind == MediaKind.TVSeries ? "No high-confidence episode set was found." : "No probable main feature was found.");
@@ -744,9 +788,31 @@ namespace DiscRipper
             }
             else
             {
-                try { if (Directory.Exists(outDir) && !Directory.EnumerateFileSystemEntries(outDir).Any()) Directory.Delete(outDir); } catch { }
+                RemoveFailedOutputFolder(outDir, Path.Combine(outputRoot, typeFolder), logPath);
             }
-            return allOk;
+                return allOk;
+            }
+            catch
+            {
+                RemoveFailedOutputFolder(outDir, Path.Combine(outputRoot, typeFolder), logPath);
+                throw;
+            }
+        }
+
+        private static void RemoveFailedOutputFolder(string failedFolder, string allowedParent, string logPath)
+        {
+            try
+            {
+                string parent = Path.GetFullPath(allowedParent).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                string target = Path.GetFullPath(failedFolder).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                if (!target.StartsWith(parent, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Failed-output cleanup target was outside the media folder.");
+                if (Directory.Exists(target)) Directory.Delete(target, true);
+                File.AppendAllText(logPath, "Removed failed output folder: " + target + Environment.NewLine, Encoding.UTF8);
+            }
+            catch (Exception ex)
+            {
+                File.AppendAllText(logPath, "Could not remove failed output folder: " + ex.Message + Environment.NewLine, Encoding.UTF8);
+            }
         }
 
         private async Task<string> NameVideoOutput(DriveRow row, MediaKind kind, string discName, IList<string> rippedFiles, string logPath)
@@ -916,9 +982,37 @@ namespace DiscRipper
         }
         private void SetStatus(DriveRow row, string text, Color color)
         {
+            row.StatusPanel.BackColor = Color.Transparent;
+            row.StatusLabel.BackColor = Color.Transparent;
             if (row.StatusLabel.Text != text) row.StatusLabel.Text = text;
             Color themedText = ThemeSettings.IsDark() ? Color.White : Color.Black;
             if (row.StatusLabel.ForeColor != themedText) row.StatusLabel.ForeColor = themedText;
+        }
+        private void SetPersistentResult(DriveRow row, string text, Color background)
+        {
+            row.LingeringResult = true;
+            row.StatusPanel.BackColor = background;
+            row.StatusLabel.BackColor = background;
+            row.StatusLabel.ForeColor = Color.White;
+            row.StatusLabel.Text = text;
+        }
+        private void ShowLatestEvent(string text, Color background)
+        {
+            latestEventBanner.BackColor = background;
+            latestEventLabel.BackColor = background;
+            latestEventLabel.ForeColor = Color.White;
+            latestEventLabel.Text = text;
+            latestEventBanner.Visible = true;
+            latestEventBanner.BringToFront();
+        }
+        private static string ShortFailureReason(string message)
+        {
+            string value = message ?? "";
+            if (value.IndexOf("read", StringComparison.OrdinalIgnoreCase) >= 0 || value.IndexOf("device data", StringComparison.OrdinalIgnoreCase) >= 0) return "disc read error";
+            if (value.IndexOf("output", StringComparison.OrdinalIgnoreCase) >= 0 || value.IndexOf("access", StringComparison.OrdinalIgnoreCase) >= 0 || value.IndexOf("network", StringComparison.OrdinalIgnoreCase) >= 0) return "output unavailable";
+            if (value.IndexOf("MakeMKV", StringComparison.OrdinalIgnoreCase) >= 0 || value.IndexOf("title", StringComparison.OrdinalIgnoreCase) >= 0) return "MakeMKV saved no complete title";
+            value = Regex.Replace(value, @"\s+", " ").Trim();
+            return value.Length == 0 ? "rip did not complete" : value.Substring(0, Math.Min(80, value.Length));
         }
         private void QueueProgress(DriveRow row, int value)
         {

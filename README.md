@@ -18,9 +18,10 @@ Media Nexus ARM is a Windows automatic ripping machine for movies, TV series, mu
 - Rips Music and Audiobooks through a managed fre:ac engine in ALAC, FLAC, or MP3.
 - Uses MusicBrainz and Cover Art Archive for music tags/artwork, retaining unidentified rips under `Pending Metadata`.
 - Includes configurable completion behavior, sounds, Light/Dark themes, layout controls, resolution presets, and 5% Ctrl+wheel zoom.
-- Provides 30-day job logs, log-backed History, and recoverable staging files when post-processing fails.
+- Provides 30-day job logs and log-backed History; failed video output folders are removed so media destinations contain completed rips only.
 - Treats MakeMKV read/save errors as failures even when MakeMKV also prints `Copy complete`.
 - Checks GitHub for newer Media Nexus ARM releases from Settings.
+- Keeps color-coded completion results visible per drive and shows a dismissible latest-event banner.
 
 ## Requirements
 
