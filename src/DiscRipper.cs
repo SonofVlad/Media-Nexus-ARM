@@ -29,6 +29,15 @@ namespace DiscRipper
         public override string ToString() { return Letter + ":  " + Name; }
     }
 
+    internal sealed class UpdateRelease
+    {
+        public Version Version;
+        public string Tag;
+        public string PageUrl;
+        public string DownloadUrl;
+        public string Sha256;
+    }
+
     internal sealed class DriveRow
     {
         public string Letter;
@@ -218,36 +227,125 @@ namespace DiscRipper
             if (button != null) button.Enabled = false;
             try
             {
-                var latest = await Task.Run(() =>
-                {
-                    ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
-                    var request = (HttpWebRequest)WebRequest.Create("https://api.github.com/repos/SonofVlad/Media-Nexus-ARM/releases/latest");
-                    request.UserAgent = "Media-Nexus-ARM/" + Assembly.GetExecutingAssembly().GetName().Version.ToString(3);
-                    request.Accept = "application/vnd.github+json";
-                    using (var response = request.GetResponse())
-                    using (var reader = new StreamReader(response.GetResponseStream()))
-                    {
-                        var data = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(reader.ReadToEnd());
-                        return new { Tag = Convert.ToString(data["tag_name"]), Url = Convert.ToString(data["html_url"]) };
-                    }
-                });
+                UpdateRelease latest = await Task.Run(() => GetLatestRelease());
                 Version current = Assembly.GetExecutingAssembly().GetName().Version;
-                Version available;
-                if (!Version.TryParse((latest.Tag ?? "").Trim().TrimStart('v', 'V'), out available)) throw new InvalidOperationException("GitHub returned an invalid release version.");
-                if (available <= current)
+                if (latest.Version <= current)
                 {
                     MessageBox.Show(DialogOwner(sender), "You are running the latest version (v" + current.ToString(3) + ").", "Media Nexus ARM - Updates", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     return;
                 }
-                if (MessageBox.Show(DialogOwner(sender), "Media Nexus ARM v" + available.ToString(3) + " is available. Open the GitHub release page?", "Update Available", MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
-                    Process.Start(new ProcessStartInfo { FileName = latest.Url, UseShellExecute = true });
+                if (rows.Values.Any(row => row.Busy))
+                {
+                    MessageBox.Show(DialogOwner(sender), "Media Nexus ARM v" + latest.Version.ToString(3) + " is available. Wait for active ripping jobs to finish before installing it.", "Update Available", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+                if (string.IsNullOrWhiteSpace(latest.DownloadUrl) || string.IsNullOrWhiteSpace(latest.Sha256))
+                {
+                    if (MessageBox.Show(DialogOwner(sender), "Media Nexus ARM v" + latest.Version.ToString(3) + " is available, but GitHub did not provide a verifiable EXE. Open the release page?", "Update Available", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes)
+                        Process.Start(new ProcessStartInfo { FileName = latest.PageUrl, UseShellExecute = true });
+                    return;
+                }
+                try { EnsureSelfUpdateWritable(); }
+                catch (Exception ex)
+                {
+                    if (MessageBox.Show(DialogOwner(sender), "This copy cannot update its current folder automatically.\n\n" + ex.Message + "\n\nOpen the release page instead?", "Update Available", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes)
+                        Process.Start(new ProcessStartInfo { FileName = latest.PageUrl, UseShellExecute = true });
+                    return;
+                }
+                if (MessageBox.Show(DialogOwner(sender), "Media Nexus ARM v" + latest.Version.ToString(3) + " is available. Download and verify the update now?", "Update Available", MessageBoxButtons.YesNo, MessageBoxIcon.Information) != DialogResult.Yes) return;
+                if (button != null) button.Text = "Downloading...";
+                string updateRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Media Nexus", "ARM", "Updates");
+                Directory.CreateDirectory(updateRoot);
+                string download = Path.Combine(updateRoot, "Media-Nexus-ARM-" + latest.Tag + ".exe.download");
+                await Task.Run(() => DownloadUpdate(latest.DownloadUrl, download));
+                string actualHash = Hashing.Sha256File(download);
+                if (!string.Equals(actualHash, latest.Sha256, StringComparison.OrdinalIgnoreCase))
+                {
+                    try { File.Delete(download); } catch { }
+                    throw new InvalidDataException("The downloaded update failed SHA-256 verification and was deleted.");
+                }
+                if (MessageBox.Show(DialogOwner(sender), "Media Nexus ARM v" + latest.Version.ToString(3) + " was downloaded and verified. Restart now to install it?", "Update Ready", MessageBoxButtons.YesNo, MessageBoxIcon.Information) != DialogResult.Yes)
+                {
+                    MessageBox.Show(DialogOwner(sender), "The verified update is saved. Use Check Updates again when you are ready to restart and install it.", "Update Ready", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+                StartUpdateAndRestart(download, latest.Sha256);
+                Application.Exit();
             }
             catch (Exception ex)
             {
                 MessageBox.Show(DialogOwner(sender), "Could not check for updates.\n\n" + ex.Message, "Media Nexus ARM - Updates", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
-            finally { if (button != null && !button.IsDisposed) button.Enabled = true; }
+            finally { if (button != null && !button.IsDisposed) { button.Text = "Check Updates"; button.Enabled = true; } }
         }
+        private static UpdateRelease GetLatestRelease()
+        {
+            ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
+            var request = (HttpWebRequest)WebRequest.Create("https://api.github.com/repos/SonofVlad/Media-Nexus-ARM/releases/latest");
+            request.UserAgent = "Media-Nexus-ARM/" + Assembly.GetExecutingAssembly().GetName().Version.ToString(3);
+            request.Accept = "application/vnd.github+json";
+            using (var response = request.GetResponse())
+            using (var reader = new StreamReader(response.GetResponseStream()))
+            {
+                var data = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(reader.ReadToEnd());
+                string tag = Convert.ToString(data["tag_name"]);
+                Version version;
+                if (!Version.TryParse((tag ?? "").Trim().TrimStart('v', 'V'), out version)) throw new InvalidOperationException("GitHub returned an invalid release version.");
+                var release = new UpdateRelease { Tag = tag, Version = version, PageUrl = Convert.ToString(data["html_url"]) };
+                object assetsValue;
+                if (data.TryGetValue("assets", out assetsValue))
+                {
+                    var assets = assetsValue as System.Collections.IEnumerable;
+                    if (assets != null)
+                        foreach (object value in assets)
+                        {
+                            var asset = value as Dictionary<string, object>;
+                            if (asset == null || !string.Equals(Convert.ToString(asset["name"]), "Media-Nexus-ARM.exe", StringComparison.OrdinalIgnoreCase)) continue;
+                            release.DownloadUrl = Convert.ToString(asset["browser_download_url"]);
+                            object digest; if (asset.TryGetValue("digest", out digest)) release.Sha256 = Convert.ToString(digest).Replace("sha256:", "").Trim();
+                            break;
+                        }
+                }
+                return release;
+            }
+        }
+        private static void DownloadUpdate(string url, string target)
+        {
+            string partial = target + ".partial";
+            try
+            {
+                var request = (HttpWebRequest)WebRequest.Create(url);
+                request.UserAgent = "Media-Nexus-ARM-Updater/" + Assembly.GetExecutingAssembly().GetName().Version.ToString(3);
+                request.AllowAutoRedirect = true;
+                using (var response = request.GetResponse()) using (Stream input = response.GetResponseStream()) using (FileStream output = File.Create(partial)) input.CopyTo(output);
+                if (File.Exists(target)) File.Delete(target);
+                File.Move(partial, target);
+            }
+            finally { try { if (File.Exists(partial)) File.Delete(partial); } catch { } }
+        }
+        private static void EnsureSelfUpdateWritable()
+        {
+            string folder = Path.GetDirectoryName(Application.ExecutablePath);
+            string probe = Path.Combine(folder, ".media-nexus-update-test-" + Guid.NewGuid().ToString("N"));
+            try { File.WriteAllText(probe, "update test"); }
+            finally { try { if (File.Exists(probe)) File.Delete(probe); } catch { } }
+        }
+        private static void StartUpdateAndRestart(string downloadedExe, string expectedHash)
+        {
+            string targetExe = Application.ExecutablePath;
+            string updateRoot = Path.GetDirectoryName(downloadedExe);
+            string updaterExe = Path.Combine(updateRoot, "Media-Nexus-ARM-Updater-" + Guid.NewGuid().ToString("N") + ".exe");
+            File.Copy(targetExe, updaterExe, true);
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = updaterExe,
+                Arguments = "--apply-update " + QuoteArgument(downloadedExe) + " " + QuoteArgument(targetExe) + " " + QuoteArgument(expectedHash) + " " + Process.GetCurrentProcess().Id,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WindowStyle = ProcessWindowStyle.Hidden
+            });
+        }
+        private static string QuoteArgument(string value) { return "\"" + (value ?? "").Replace("\"", "\\\"") + "\""; }
         private void ShowHistory(object sender, EventArgs e) { using (var dialog = new HistoryForm(outputRoot)) dialog.ShowDialog(DialogOwner(sender)); }
         private void OpenLogs(object sender, EventArgs e) { OpenFolder(Path.Combine(outputRoot, "Logs")); }
         private void ResetSettings(object sender, EventArgs e)
@@ -1742,14 +1840,59 @@ namespace DiscRipper
         }
     }
 
+    internal static class SelfUpdater
+    {
+        public static void Apply(string downloadedExe, string targetExe, string expectedHash, int processId)
+        {
+            string updaterExe = Application.ExecutablePath;
+            string backup = targetExe + ".previous";
+            string updateRoot = Path.GetDirectoryName(downloadedExe);
+            string log = Path.Combine(updateRoot, "update-error.log");
+            try
+            {
+                try { Process.GetProcessById(processId).WaitForExit(120000); } catch (ArgumentException) { }
+                Process existing = null; try { existing = Process.GetProcessById(processId); } catch (ArgumentException) { }
+                if (existing != null && !existing.HasExited) throw new InvalidOperationException("Media Nexus ARM did not close in time.");
+                if (!string.Equals(Hashing.Sha256File(downloadedExe), expectedHash, StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("Downloaded update checksum changed before installation.");
+                File.Copy(targetExe, backup, true);
+                File.Copy(downloadedExe, targetExe, true);
+                if (!string.Equals(Hashing.Sha256File(targetExe), expectedHash, StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("Installed update checksum verification failed.");
+                Process.Start(new ProcessStartInfo { FileName = targetExe, Arguments = "--cleanup-updater \"" + updaterExe.Replace("\"", "\\\"") + "\"", UseShellExecute = true });
+                TryDelete(downloadedExe); TryDelete(backup);
+            }
+            catch (Exception ex)
+            {
+                try { Directory.CreateDirectory(updateRoot); File.AppendAllText(log, DateTime.Now.ToString("O") + "  " + ex.Message + Environment.NewLine); } catch { }
+                try { if (File.Exists(backup)) File.Copy(backup, targetExe, true); } catch { }
+                try { if (File.Exists(targetExe)) Process.Start(new ProcessStartInfo { FileName = targetExe, Arguments = "--update-error-log \"" + log.Replace("\"", "\\\"") + "\"", UseShellExecute = true }); } catch { }
+            }
+        }
+        public static void Cleanup(string updaterExe)
+        {
+            for (int i = 0; i < 40 && File.Exists(updaterExe); i++)
+            {
+                try { File.Delete(updaterExe); } catch { Thread.Sleep(100); }
+            }
+        }
+        private static void TryDelete(string path) { try { if (File.Exists(path)) File.Delete(path); } catch { } }
+    }
+
     internal static class Program
     {
         [STAThread]
-        private static void Main()
+        private static void Main(string[] args)
         {
-            AppDomain.CurrentDomain.AssemblyResolve += (sender, args) =>
+            if (args.Length >= 5 && args[0] == "--apply-update")
             {
-                if (!args.Name.StartsWith("TagLibSharp", StringComparison.OrdinalIgnoreCase)) return null;
+                int processId; if (!int.TryParse(args[4], out processId)) return;
+                SelfUpdater.Apply(args[1], args[2], args[3], processId); return;
+            }
+            string updateErrorLog = null;
+            if (args.Length >= 2 && args[0] == "--cleanup-updater") SelfUpdater.Cleanup(args[1]);
+            else if (args.Length >= 2 && args[0] == "--update-error-log") updateErrorLog = args[1];
+            AppDomain.CurrentDomain.AssemblyResolve += (sender, resolutionArgs) =>
+            {
+                if (!resolutionArgs.Name.StartsWith("TagLibSharp", StringComparison.OrdinalIgnoreCase)) return null;
                 using (Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("MediaNexus.TagLibSharp.dll"))
                 {
                     if (stream == null) return null;
@@ -1757,6 +1900,12 @@ namespace DiscRipper
                 }
             };
             Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false);
+            if (!string.IsNullOrWhiteSpace(updateErrorLog))
+            {
+                string details = "The update could not be installed. The previous version was restored.";
+                try { if (File.Exists(updateErrorLog)) details += "\r\n\r\n" + File.ReadAllText(updateErrorLog); } catch { }
+                MessageBox.Show(details, "Media Nexus ARM - Update Failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
             var detected = DriveSettings.DiscoverOpticalDrives();
             var selectedIds = DriveSettings.LoadSelectedIds();
             if (selectedIds.Length == 0)
