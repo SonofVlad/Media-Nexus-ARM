@@ -723,10 +723,17 @@ namespace DiscRipper
                     QueueProgress(row, wholeDiscPercent);
                 }, true, movieBytesWritten, expectedMovieBytes);
                 File.AppendAllText(logPath, result.Output, Encoding.UTF8);
-                bool copied = result.Output.IndexOf("Copy complete", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                              (result.ExitCode == 0 && Directory.GetFiles(outDir, "*.mkv").Length > filesBefore.Count);
-                if (!copied) { allOk = false; break; }
-                string created = Directory.GetFiles(outDir, "*.mkv").Where(path => !filesBefore.Contains(path)).OrderByDescending(path => new FileInfo(path).LastWriteTimeUtc).FirstOrDefault();
+                string[] newFiles = Directory.GetFiles(outDir, "*.mkv").Where(path => !filesBefore.Contains(path)).ToArray();
+                bool reportedFailure = Regex.IsMatch(result.Output ?? "", @"Copy complete\.\s*\d+\s+titles?\s+saved,\s*[1-9]\d*\s+failed", RegexOptions.IgnoreCase) ||
+                                       (result.Output ?? "").IndexOf("Failed to save title", StringComparison.OrdinalIgnoreCase) >= 0;
+                bool copied = result.ExitCode == 0 && !reportedFailure && newFiles.Any(path => new FileInfo(path).Length > 0);
+                if (!copied)
+                {
+                    File.AppendAllText(logPath, "ARM result: failed; MakeMKV did not create a complete MKV for title " + title + "." + Environment.NewLine, Encoding.UTF8);
+                    allOk = false;
+                    break;
+                }
+                string created = newFiles.Where(path => new FileInfo(path).Length > 0).OrderByDescending(path => new FileInfo(path).LastWriteTimeUtc).FirstOrDefault();
                 if (created != null) { rippedFiles.Add(created); File.AppendAllText(logPath, "MakeMKV title " + title + " -> " + created + Environment.NewLine, Encoding.UTF8); }
                 completedTitles++;
             }
@@ -734,6 +741,10 @@ namespace DiscRipper
             {
                 string final = await NameVideoOutput(row, kind, discName, rippedFiles, logPath);
                 File.AppendAllText(logPath, "Completed output: " + final + Environment.NewLine, Encoding.UTF8);
+            }
+            else
+            {
+                try { if (Directory.Exists(outDir) && !Directory.EnumerateFileSystemEntries(outDir).Any()) Directory.Delete(outDir); } catch { }
             }
             return allOk;
         }
