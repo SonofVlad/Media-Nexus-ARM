@@ -6,6 +6,12 @@
 
 Media Nexus ARM is a Windows automatic ripping machine for movies, TV series, music CDs, and audiobooks across multiple optical drives.
 
+## Media Nexus ARM in action
+
+<p align="center">
+  <img src="assets/Media-Nexus-ARM-running.png" alt="Media Nexus ARM concurrently ripping movies, TV series, and music across multiple optical drives">
+</p>
+
 ## Current features
 
 - Manages any number of remembered optical drives, with independent status, progress, Stop, and Eject controls.
