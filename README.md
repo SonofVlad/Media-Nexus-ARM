@@ -54,15 +54,19 @@ The application is portable and does not create an installer or automatic-start 
 ```text
 <selected output>/
 |-- Movies/
-|-- TV Series/
+|-- TV Shows/
 |-- Music/
 |-- Audiobooks/
 |-- Pending Metadata/
-|-- Staging/
+|-- RIP/
+|   |-- Movies/
+|   |-- TV Shows/
+|   |-- Music/
+|   `-- Audiobooks/
 `-- Logs/
 ```
 
-MusicBrainz or artwork failure does not discard a successful extraction. Unidentified albums are retained in `Pending Metadata`; incomplete post-processing remains in `Staging` for recovery.
+`RIP` contains temporary in-progress extraction folders separated by media type. Successful files are moved into the final media folders. MusicBrainz or artwork failure does not discard a successful extraction; unidentified albums are retained in `Pending Metadata`.
 
 ## Video handling
 
@@ -70,7 +74,7 @@ Media Nexus ARM uses MakeMKV title information without FFmpeg. Movie mode select
 
 These are conservative heuristics. Unusually authored or obfuscated discs can still require manual selection.
 
-Movie mode creates `Movies\<Disc Name>\<Disc Name>.mkv`. TV mode creates `TV Series\<Disc Name>\` and preserves MakeMKV's filenames. The Disc field can be edited while ripping.
+Movie mode creates `Movies\<Disc Name>\<Disc Name>.mkv`. TV mode creates `TV Shows\<Disc Name>\` and preserves MakeMKV's filenames. The Disc field can be edited while ripping.
 
 ## Settings and privacy
 

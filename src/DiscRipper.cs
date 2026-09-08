@@ -928,10 +928,11 @@ namespace DiscRipper
         {
             if (discIndex < 0) discIndex = await GetMakeMkvDiscIndex(row.Letter);
 
-            string typeFolder = kind == MediaKind.Movie ? "Movies" : "TV Series";
+            string typeFolder = kind == MediaKind.Movie ? "Movies" : "TV Shows";
+            string ripTypeRoot = Path.Combine(outputRoot, "RIP", typeFolder);
             string discName = SafeName(GetVolumeLabel(row.Letter));
             if (string.IsNullOrWhiteSpace(discName) || discName == "UNKNOWN_DISC") discName = "DISC_" + row.Letter;
-            string outDir = UniqueDiscFolder(Path.Combine(outputRoot, typeFolder), discName);
+            string outDir = UniqueDiscFolder(ripTypeRoot, discName);
             Directory.CreateDirectory(outDir);
             string logDir = Path.Combine(outputRoot, "Logs"); Directory.CreateDirectory(logDir);
             string logPath = Path.Combine(logDir, "makemkv_" + row.Letter + "_" + DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss") + ".log");
@@ -987,13 +988,13 @@ namespace DiscRipper
             }
             else
             {
-                RemoveFailedOutputFolder(outDir, Path.Combine(outputRoot, typeFolder), logPath);
+                RemoveFailedOutputFolder(outDir, ripTypeRoot, logPath);
             }
                 return allOk;
             }
             catch
             {
-                RemoveFailedOutputFolder(outDir, Path.Combine(outputRoot, typeFolder), logPath);
+                RemoveFailedOutputFolder(outDir, ripTypeRoot, logPath);
                 throw;
             }
         }
@@ -1062,7 +1063,8 @@ namespace DiscRipper
                 }
 
                 await freac.EnsureInstalledAsync(message => Ui(() => SetStatus(row, message, Color.Purple)), token);
-                string staging = Path.Combine(outputRoot, "Staging", "Audio", row.Letter + "_" + DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss"));
+                string ripTypeFolder = kind == MediaKind.Music ? "Music" : "Audiobooks";
+                string staging = Path.Combine(outputRoot, "RIP", ripTypeFolder, row.Letter + "_" + DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss"));
                 AudioFormat audioFormat = AppSettings.LoadAudioFormat();
                 FreacRipResult rip = await freac.RipAudioAsync(row.Letter, toc, staging, null, audioFormat, p =>
                 {
