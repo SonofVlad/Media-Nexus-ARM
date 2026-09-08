@@ -121,7 +121,7 @@ namespace DiscRipper
             return Task.Run(() =>
             {
                 ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
-                var request = (HttpWebRequest)WebRequest.Create(url); request.UserAgent = "Media-Nexus-ARM/0.7.21"; request.AllowAutoRedirect = true;
+                var request = (HttpWebRequest)WebRequest.Create(url); request.UserAgent = "Media-Nexus-ARM/0.7.22"; request.AllowAutoRedirect = true;
                 using (token.Register(() => request.Abort())) using (var response = request.GetResponse()) using (Stream input = response.GetResponseStream()) using (FileStream output = File.Create(target)) input.CopyTo(output);
             }, token);
         }
@@ -160,6 +160,7 @@ namespace DiscRipper
     internal static class Hashing
     {
         public static string Sha256File(string path) { using (var sha = System.Security.Cryptography.SHA256.Create()) using (FileStream stream = File.OpenRead(path)) return BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", ""); }
+        public static string Sha256Text(string value) { using (var sha = System.Security.Cryptography.SHA256.Create()) return BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(value ?? ""))).Replace("-", ""); }
     }
 
     internal sealed class ProcessTextResult { public int ExitCode; public string Output; }

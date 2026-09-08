@@ -38,6 +38,14 @@ namespace DiscRipper
         public string Sha256;
     }
 
+    internal sealed class VideoScanResult
+    {
+        public string Fingerprint;
+        public string Output;
+        public int DiscIndex;
+        public bool FromCache;
+    }
+
     internal sealed class DriveRow
     {
         public string Letter;
@@ -63,6 +71,10 @@ namespace DiscRipper
         public bool StopRequested;
         public bool LingeringResult;
         public bool SettlePollScheduled;
+        public bool BackgroundProbeStarted;
+        public string VideoScanFingerprint;
+        public Task<VideoScanResult> VideoScanTask;
+        public DiscToc CachedAudioToc;
     }
 
     internal sealed class MainForm : Form
@@ -72,6 +84,7 @@ namespace DiscRipper
         private readonly System.Windows.Forms.Timer pollTimer = new System.Windows.Forms.Timer();
         private readonly FreacManager freac = new FreacManager();
         private readonly SemaphoreSlim makeMkvMapGate = new SemaphoreSlim(1, 1);
+        private readonly SemaphoreSlim backgroundVideoScanGate = new SemaphoreSlim(1, 1);
         private readonly ConcurrentDictionary<string, int> discIndexes = new ConcurrentDictionary<string, int>();
         private readonly Label footer = new Label();
         private readonly Panel latestEventBanner = new Panel();
@@ -222,6 +235,12 @@ namespace DiscRipper
             {
                 if (dialog.ShowDialog(DialogOwner(sender)) != DialogResult.OK) return;
                 AppSettings.SaveVideoMinimumSeconds(dialog.MinimumSeconds);
+                foreach (DriveRow row in rows.Values)
+                {
+                    row.BackgroundProbeStarted = false;
+                    row.VideoScanFingerprint = null;
+                    row.VideoScanTask = null;
+                }
             }
         }
 
@@ -598,6 +617,10 @@ namespace DiscRipper
                 row.ManualTypeSelected = false;
                 row.FirstSeen = DateTime.MinValue;
                 row.SettlePollScheduled = false;
+                row.BackgroundProbeStarted = false;
+                row.VideoScanFingerprint = null;
+                row.VideoScanTask = null;
+                row.CachedAudioToc = null;
                 row.DiscLabel.Text = "Empty";
                 row.LingeringResult = false;
                 if (!row.Busy) { SetType(row, MediaKind.Choose); SetStatus(row, "Waiting for disc", Color.DimGray); SetProgress(row, 0); }
@@ -630,7 +653,9 @@ namespace DiscRipper
             MediaKind kind = SelectedKind(row);
             if (kind == MediaKind.Choose || !row.ManualTypeSelected)
             {
-                SetStatus(row, "Disc detected - select a media type", Color.DarkOrange);
+                TryStartBackgroundProbe(row);
+                if (row.VideoScanTask == null || row.VideoScanTask.IsCompleted)
+                    SetStatus(row, row.CachedAudioToc != null ? "Disc detected - select a media type (audio ready)" : row.VideoScanTask != null && row.VideoScanTask.Status == TaskStatus.RanToCompletion ? "Disc detected - select a media type (titles ready)" : "Disc detected - select a media type", Color.DarkOrange);
                 SetProgress(row, 0);
                 if (newlySeen) SystemSounds.Asterisk.Play();
                 return;
@@ -723,7 +748,7 @@ namespace DiscRipper
 
             if (requested == MediaKind.Music || requested == MediaKind.Book)
             {
-                DiscToc toc = analysis == null ? null : analysis.AudioToc;
+                DiscToc toc = row.CachedAudioToc;
                 if (toc == null) toc = await WaitForAudioToc(row, token);
                 if (toc == null) throw new InvalidOperationException("This does not appear to be an audio CD.");
                 return await RipAudio(row, requested, toc, token);
@@ -731,15 +756,67 @@ namespace DiscRipper
 
             if (analysis == null)
             {
-                discIndex = await GetMakeMkvDiscIndex(row.Letter);
-                ProcessResult info = await RunMakeMkvInfo(discIndex, row.Letter, token);
-                analysis = DiscAnalyzer.AnalyzeVideo(info.Output);
+                string fingerprint = GetDiscFingerprint(row.Letter);
+                VideoScanResult scan = null;
+                Task<VideoScanResult> existing = row.VideoScanFingerprint == fingerprint ? row.VideoScanTask : null;
+                if (existing != null)
+                {
+                    Ui(() => SetStatus(row, "Finishing video title scan...", Color.DarkBlue));
+                    try { scan = await existing; } catch { scan = null; }
+                }
+                if (scan == null)
+                {
+                    if (row.CachedAudioToc != null) throw new InvalidOperationException("This appears to be an audio CD, not a video disc.");
+                    discIndex = await GetMakeMkvDiscIndex(row.Letter);
+                    scan = await LoadOrScanVideo(row, discIndex, fingerprint, token);
+                }
+                discIndex = scan.DiscIndex;
+                analysis = DiscAnalyzer.AnalyzeVideo(scan.Output);
                 analysis.Kind = requested;
                 List<int> selected = await SelectVideoTitles(row.Letter, requested, analysis.VideoTitles);
                 if (selected == null) throw new OperationCanceledException("Title selection was cancelled.");
                 analysis.SelectedTitleIds.Clear(); analysis.SelectedTitleIds.AddRange(selected);
             }
             return await RipVideo(row, requested, analysis, discIndex, token);
+        }
+
+        private void TryStartBackgroundProbe(DriveRow row)
+        {
+            if (row.BackgroundProbeStarted || row.Busy || rows.Values.Any(r => r.Busy) || !backgroundVideoScanGate.Wait(0)) return;
+            row.BackgroundProbeStarted = true;
+            string fingerprint = GetDiscFingerprint(row.Letter);
+            row.VideoScanFingerprint = fingerprint;
+            SetStatus(row, "Preparing title list in background...", Color.DarkBlue);
+            row.VideoScanTask = Task.Run(async () =>
+            {
+                try
+                {
+                    DiscToc toc = NativeDisc.TryReadAudioToc(row.Letter);
+                    if (toc != null) { row.CachedAudioToc = toc; return null; }
+                    int index = await GetMakeMkvDiscIndex(row.Letter);
+                    return await LoadOrScanVideo(row, index, fingerprint, CancellationToken.None);
+                }
+                finally { backgroundVideoScanGate.Release(); }
+            });
+            row.VideoScanTask.ContinueWith(task => Ui(() =>
+            {
+                if (row.Busy || !row.Present || row.VideoScanTask != task) return;
+                if (task.Status == TaskStatus.RanToCompletion)
+                    SetStatus(row, task.Result == null ? "Disc detected - select a media type (audio ready)" : (task.Result.FromCache ? "Disc detected - select a media type (cached titles ready)" : "Disc detected - select a media type (titles ready)"), Color.DarkOrange);
+                else SetStatus(row, "Disc detected - select a media type", Color.DarkOrange);
+            }));
+        }
+
+        private async Task<VideoScanResult> LoadOrScanVideo(DriveRow row, int discIndex, string fingerprint, CancellationToken token)
+        {
+            int minimumSeconds = AppSettings.LoadVideoMinimumSeconds();
+            string makeMkvVersion = FileVersionInfo.GetVersionInfo(makeMkv).FileVersion ?? "unknown";
+            string cached;
+            if (VideoScanCache.TryLoad(fingerprint, makeMkvVersion, minimumSeconds, out cached))
+                return new VideoScanResult { Fingerprint = fingerprint, Output = cached, DiscIndex = discIndex, FromCache = true };
+            ProcessResult info = await RunMakeMkvInfo(discIndex, row.Letter, token);
+            VideoScanCache.Save(fingerprint, makeMkvVersion, minimumSeconds, info.Output);
+            return new VideoScanResult { Fingerprint = fingerprint, Output = info.Output, DiscIndex = discIndex, FromCache = false };
         }
 
         private Task<List<int>> SelectVideoTitles(string driveLetter, MediaKind kind, IList<VideoTitleInfo> titles)
@@ -1176,6 +1253,28 @@ namespace DiscRipper
                 return GetVolumeInformation(letter.TrimEnd(':') + @":\", volume, volume.Capacity, out serial, out maximumComponentLength, out flags, fileSystem, fileSystem.Capacity) ? volume.ToString() : "";
             }
             catch { return ""; }
+            finally { if (changed) { uint ignored; SetThreadErrorMode(oldMode, out ignored); } }
+        }
+        private static string GetDiscFingerprint(string letter)
+        {
+            uint oldMode = 0;
+            bool changed = SetThreadErrorMode(SemFailCriticalErrors, out oldMode);
+            try
+            {
+                var volume = new StringBuilder(261); var fileSystem = new StringBuilder(261);
+                uint serial, maximumComponentLength, flags;
+                string root = letter.TrimEnd(':') + @":\";
+                if (!GetVolumeInformation(root, volume, volume.Capacity, out serial, out maximumComponentLength, out flags, fileSystem, fileSystem.Capacity)) return null;
+                string marker = "";
+                foreach (string relative in new[] { @"VIDEO_TS\VIDEO_TS.IFO", @"BDMV\index.bdmv" })
+                {
+                    string path = Path.Combine(root, relative);
+                    if (!File.Exists(path)) continue;
+                    var info = new FileInfo(path); marker = relative + "|" + info.Length + "|" + info.LastWriteTimeUtc.Ticks; break;
+                }
+                return Hashing.Sha256Text(serial.ToString("X8") + "|" + volume + "|" + fileSystem + "|" + marker);
+            }
+            catch { return null; }
             finally { if (changed) { uint ignored; SetThreadErrorMode(oldMode, out ignored); } }
         }
         private static string SafeName(string value)

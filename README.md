@@ -18,6 +18,7 @@ Media Nexus ARM is a Windows automatic ripping machine for movies, TV series, mu
 - Waits for an explicit Movie, TV Series, Music, or Audiobook choice; unused types can be hidden.
 - Runs video and audio jobs concurrently while keeping the interface responsive.
 - Always opens a manual title picker for Movie and TV Series discs, showing every title that meets the configurable minimum runtime.
+- Prepares one video disc at a time in the background and securely caches completed MakeMKV title scans for faster selection on recognized discs.
 - Supports selecting and ripping multiple movies from a single disc.
 - Finds likely TV episode groups using runtime, chapter, playlist, and Play All analysis, with optional expected-episode count.
 - Uses the editable disc name for movie and TV folders; movie files are renamed while TV filenames are preserved.
