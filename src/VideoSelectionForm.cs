@@ -13,7 +13,7 @@ namespace DiscRipper
         private readonly IList<VideoTitleInfo> sourceTitles;
         public List<int> SelectedTitleIds { get; private set; }
 
-        public VideoSelectionForm(MediaKind kind, string driveLetter, IList<VideoTitleInfo> titles)
+        public VideoSelectionForm(MediaKind kind, string driveLetter, IList<VideoTitleInfo> titles, int minimumSeconds)
         {
             movie = kind == MediaKind.Movie;
             sourceTitles = titles;
@@ -22,10 +22,11 @@ namespace DiscRipper
             StartPosition = FormStartPosition.CenterParent; Font = new Font("Segoe UI", 9F); Size = new Size(1050, 500); MinimumSize = new Size(850, 400);
             var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(12), RowCount = 3, ColumnCount = 1 };
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); root.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            root.Controls.Add(new Label { Text = "Drive " + drive + " - " + (movie ? "Select one or more movie features. Composite playlists are not selected automatically." : "Confirm the individual episode playlists. Play All and likely extras should remain unchecked."), AutoSize = true, Padding = new Padding(0, 0, 0, 8) });
+            string minimumText = minimumSeconds <= 0 ? "all reported titles" : "titles at least " + FormatMinimum(minimumSeconds) + " long";
+            root.Controls.Add(new Label { Text = "Drive " + drive + " - Select what to rip from " + minimumText + ". " + (movie ? "One disc may contain multiple movies." : "Avoid Play All and extras when selecting individual episodes."), AutoSize = true, Padding = new Padding(0, 0, 0, 8) });
             ConfigureGrid(); root.Controls.Add(grid, 0, 1);
-            IList<VideoTitleInfo> ordered = (movie ? (IEnumerable<VideoTitleInfo>)DiscAnalyzer.RankMovieCandidates(titles) : titles.Where(t => t.DurationSeconds >= DiscAnalyzer.ManualSelectionMinimumSeconds).OrderBy(t => t.Id)).ToList();
-            List<int> suggested = movie ? ordered.Where(t => !t.Composite).Take(1).Select(t => t.Id).ToList() : DiscAnalyzer.SelectTvTitles(titles);
+            IList<VideoTitleInfo> ordered = (movie ? (IEnumerable<VideoTitleInfo>)DiscAnalyzer.RankMovieCandidates(titles, minimumSeconds) : titles.Where(t => t.DurationSeconds >= minimumSeconds).OrderBy(t => t.Id)).ToList();
+            List<int> suggested = new List<int>();
             foreach (VideoTitleInfo title in ordered)
             {
                 int row = grid.Rows.Add(suggested.Contains(title.Id), title.Id, title.DurationText, title.SizeText, title.Chapters, title.Playlist, string.Join(",", title.Segments.ToArray()), title.SelectionReason ?? (title.Composite ? "Composite playlist" : "Candidate"));
@@ -54,6 +55,12 @@ namespace DiscRipper
                 toggleAll.Text = select ? "Deselect All" : "Select All";
             };
             buttons.Controls.Add(toggleAll); root.Controls.Add(buttons, 0, 2); Controls.Add(root); AcceptButton = rip; CancelButton = cancel; ThemeSettings.Apply(this);
+        }
+
+        private static string FormatMinimum(int seconds)
+        {
+            if (seconds % 60 == 0) return (seconds / 60) + (seconds == 60 ? " minute" : " minutes");
+            return TimeSpan.FromSeconds(seconds).ToString(@"m\:ss");
         }
 
         private void ApplyTvSuggestion(int expectedCount)

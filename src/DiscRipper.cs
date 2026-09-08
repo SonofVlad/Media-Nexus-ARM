@@ -62,12 +62,12 @@ namespace DiscRipper
         public CancellationTokenSource Cancellation;
         public bool StopRequested;
         public bool LingeringResult;
+        public bool SettlePollScheduled;
     }
 
     internal sealed class MainForm : Form
     {
         private const int GridRowHeight = 44;
-        private const int MinLengthSeconds = DiscAnalyzer.ManualSelectionMinimumSeconds;
         private readonly Dictionary<string, DriveRow> rows = new Dictionary<string, DriveRow>();
         private readonly System.Windows.Forms.Timer pollTimer = new System.Windows.Forms.Timer();
         private readonly FreacManager freac = new FreacManager();
@@ -129,7 +129,7 @@ namespace DiscRipper
 
             pollTimer.Interval = 3000;
             pollTimer.Tick += PollTimerOnTick;
-            Shown += (s, e) => { pollTimer.Start(); PollAll(); };
+            Shown += (s, e) => { pollTimer.Start(); PollAll(); WarmMakeMkvMap(); };
             ThemeSettings.Apply(this);
             zoomWheelFilter = new ZoomWheelMessageFilter(ChangeZoomByWheel);
             Application.AddMessageFilter(zoomWheelFilter);
@@ -158,7 +158,7 @@ namespace DiscRipper
 
         private void OpenSettings(object sender, EventArgs e)
         {
-            using (var dialog = new SettingsForm(ConfigureDrives, ConfigureOutputFolder, ConfigureLayout, ConfigureMediaTypes, ConfigureAudioEngine, ConfigureTheme, ConfigureBehavior, ShowDiagnostics, OpenLogs, CheckForUpdates, ResetSettings))
+            using (var dialog = new SettingsForm(ConfigureDrives, ConfigureOutputFolder, ConfigureLayout, ConfigureMediaTypes, ConfigureVideoSelection, ConfigureAudioEngine, ConfigureTheme, ConfigureBehavior, ShowDiagnostics, OpenLogs, CheckForUpdates, ResetSettings))
                 dialog.ShowDialog(this);
         }
 
@@ -208,6 +208,20 @@ namespace DiscRipper
                 AppSettings.SaveEnabledMediaTypes(dialog.EnabledKinds);
                 BuildToolbar();
                 foreach (DriveRow row in rows.Values) PopulateMediaTypes(row.TypeBox, row);
+            }
+        }
+
+        private void ConfigureVideoSelection(object sender, EventArgs e)
+        {
+            if (rows.Values.Any(r => r.Busy))
+            {
+                MessageBox.Show(this, "Wait for active rips to finish before changing video-title filtering.", "Media Nexus ARM", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            using (var dialog = new VideoSelectionSettingsForm(AppSettings.LoadVideoMinimumSeconds()))
+            {
+                if (dialog.ShowDialog(DialogOwner(sender)) != DialogResult.OK) return;
+                AppSettings.SaveVideoMinimumSeconds(dialog.MinimumSeconds);
             }
         }
 
@@ -496,6 +510,7 @@ namespace DiscRipper
                 if (item.SuppressTypeChange || item.Busy) return;
                 item.AwaitingChoice = false;
                 item.ManualTypeSelected = SelectedKind(item) != MediaKind.Choose;
+                if (item.ManualTypeSelected) item.LingeringResult = false;
                 PollDrive(item);
             };
             discLabel.KeyDown += (s, e) =>
@@ -582,6 +597,7 @@ namespace DiscRipper
                 row.AwaitingChoice = false;
                 row.ManualTypeSelected = false;
                 row.FirstSeen = DateTime.MinValue;
+                row.SettlePollScheduled = false;
                 row.DiscLabel.Text = "Empty";
                 row.LingeringResult = false;
                 if (!row.Busy) { SetType(row, MediaKind.Choose); SetStatus(row, "Waiting for disc", Color.DimGray); SetProgress(row, 0); }
@@ -597,9 +613,17 @@ namespace DiscRipper
             if (newlySeen) { row.Present = true; row.FirstSeen = DateTime.Now; }
             if (row.LingeringResult) return;
             if (row.AwaitingChoice) return;
-            if ((DateTime.Now - row.FirstSeen).TotalSeconds < 4)
+            double settleSeconds = row.ManualTypeSelected ? 1.5 : 4.0;
+            double elapsed = (DateTime.Now - row.FirstSeen).TotalSeconds;
+            if (elapsed < settleSeconds)
             {
                 SetStatus(row, "Disc detected - waiting for drive to settle...", Color.DarkBlue);
+                if (row.ManualTypeSelected && !row.SettlePollScheduled)
+                {
+                    row.SettlePollScheduled = true;
+                    int delay = Math.Max(100, (int)((settleSeconds - elapsed) * 1000));
+                    Task.Delay(delay).ContinueWith(_ => Ui(() => { row.SettlePollScheduled = false; PollDrive(row); }));
+                }
                 return;
             }
 
@@ -711,15 +735,7 @@ namespace DiscRipper
                 ProcessResult info = await RunMakeMkvInfo(discIndex, row.Letter, token);
                 analysis = DiscAnalyzer.AnalyzeVideo(info.Output);
                 analysis.Kind = requested;
-                List<int> selected;
-                int automaticTitle; string automaticReason;
-                if (requested == MediaKind.Movie && DiscAnalyzer.TrySelectHighConfidenceMovie(analysis.VideoTitles, out automaticTitle, out automaticReason))
-                {
-                    selected = new List<int> { automaticTitle };
-                    WriteProbeLog(row.Letter, "Movie title selected automatically: title " + automaticTitle + " (" + automaticReason + ").", info.Output);
-                    Ui(() => SetStatus(row, "High-confidence movie title found - starting rip...", Color.DarkGreen));
-                }
-                else selected = await SelectVideoTitles(row.Letter, requested, analysis.VideoTitles);
+                List<int> selected = await SelectVideoTitles(row.Letter, requested, analysis.VideoTitles);
                 if (selected == null) throw new OperationCanceledException("Title selection was cancelled.");
                 analysis.SelectedTitleIds.Clear(); analysis.SelectedTitleIds.AddRange(selected);
             }
@@ -728,12 +744,13 @@ namespace DiscRipper
 
         private Task<List<int>> SelectVideoTitles(string driveLetter, MediaKind kind, IList<VideoTitleInfo> titles)
         {
-            if (!titles.Any(t => t.DurationSeconds >= DiscAnalyzer.ManualSelectionMinimumSeconds))
-                throw new InvalidOperationException("MakeMKV found no titles longer than five minutes on this disc.");
+            int minimumSeconds = AppSettings.LoadVideoMinimumSeconds();
+            if (!titles.Any(t => t.DurationSeconds >= minimumSeconds))
+                throw new InvalidOperationException("MakeMKV found no titles meeting the configured minimum length on this disc.");
             var completion = new TaskCompletionSource<List<int>>();
             Ui(() =>
             {
-                using (var dialog = new VideoSelectionForm(kind, driveLetter, titles))
+                using (var dialog = new VideoSelectionForm(kind, driveLetter, titles, minimumSeconds))
                 {
                     DialogResult result = dialog.ShowDialog(this);
                     completion.SetResult(result == DialogResult.OK ? dialog.SelectedTitleIds : null);
@@ -789,6 +806,13 @@ namespace DiscRipper
             return index;
         }
 
+        private async void WarmMakeMkvMap()
+        {
+            await makeMkvMapGate.WaitAsync();
+            try { if (discIndexes.IsEmpty) await RefreshMakeMkvMap(); }
+            finally { makeMkvMapGate.Release(); }
+        }
+
         private async Task<ProcessResult> RunMakeMkvInfo(int discIndex, string letter, CancellationToken token)
         {
             ProcessResult last = null;
@@ -796,7 +820,7 @@ namespace DiscRipper
             {
                 token.ThrowIfCancellationRequested();
                 if (!IsMediaPresent(letter)) throw new InvalidOperationException("The disc is no longer available.");
-                last = await RunProcess(makeMkv, "-r --noscan --cache=1 info disc:" + discIndex, token);
+                last = await RunProcess(makeMkv, "-r --noscan --cache=1 --minlength=" + AppSettings.LoadVideoMinimumSeconds() + " info disc:" + discIndex, token);
                 bool usable = last.ExitCode == 0 && last.Output.IndexOf("TINFO:", StringComparison.OrdinalIgnoreCase) >= 0;
                 if (usable) { WriteProbeLog(letter, "MakeMKV disc analysis.", last.Output); return last; }
                 if (attempt < 3) await Task.Delay(2000, token);
@@ -859,7 +883,7 @@ namespace DiscRipper
                         try { return new FileInfo(path).Length; }
                         catch { return 0L; }
                     })) : null;
-                var result = await RunProcess(makeMkv, "-r --noscan --minlength=" + MinLengthSeconds + " mkv disc:" + discIndex + " " + target + " \"" + outDir + "\"", token, percent =>
+                var result = await RunProcess(makeMkv, "-r --noscan --minlength=" + AppSettings.LoadVideoMinimumSeconds() + " mkv disc:" + discIndex + " " + target + " \"" + outDir + "\"", token, percent =>
                 {
                     int wholeDiscPercent = Math.Min(99, ((titlesDoneAtStart * 100) + percent) / titleIds.Count);
                     QueueProgress(row, wholeDiscPercent);
@@ -1245,7 +1269,7 @@ namespace DiscRipper
 
     internal sealed class SettingsForm : Form
     {
-        public SettingsForm(EventHandler configureDrives, EventHandler configureOutput, EventHandler configureLayout, EventHandler configureMediaTypes, EventHandler configureAudio, EventHandler configureTheme, EventHandler configureBehavior, EventHandler diagnostics, EventHandler logs, EventHandler updates, EventHandler reset)
+        public SettingsForm(EventHandler configureDrives, EventHandler configureOutput, EventHandler configureLayout, EventHandler configureMediaTypes, EventHandler configureVideo, EventHandler configureAudio, EventHandler configureTheme, EventHandler configureBehavior, EventHandler diagnostics, EventHandler logs, EventHandler updates, EventHandler reset)
         {
             Text = "Media Nexus ARM - Settings"; StartPosition = FormStartPosition.CenterParent;
             Font = new Font("Segoe UI", 9F); FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -1257,8 +1281,8 @@ namespace DiscRipper
             root.Controls.Add(new Label { Text = "Settings", Font = new Font("Segoe UI", 15F, FontStyle.Bold), AutoSize = true, Padding = new Padding(0, 0, 0, 10) }, 0, 0);
             AddSettingButtons(root, 1, "Drives and Storage", "Choose the managed optical drives and the media output folder.", "Optical Drives", configureDrives, "Output Folder", configureOutput);
             AddSettingButtons(root, 2, "Interface", "Adjust the window, table columns, and Light or Dark appearance.", "Layout", configureLayout, "Appearance", configureTheme);
-            AddSettingButtons(root, 3, "Media and Audio", "Choose visible media types, audio format, and manage the fre:ac engine.", "Media Types", configureMediaTypes, "Audio Engine", configureAudio);
-            AddSettingButton(root, 4, "Completion", "Choose automatic eject behavior and pass/fail completion sounds.", "Configure", configureBehavior);
+            AddSettingButtons(root, 3, "Media Selection", "Choose visible media types and the minimum video title length shown.", "Media Types", configureMediaTypes, "Video Titles", configureVideo);
+            AddSettingButtons(root, 4, "Audio and Completion", "Configure the audio engine, automatic eject behavior, and completion sounds.", "Audio Engine", configureAudio, "Completion", configureBehavior);
             AddSettingButtons(root, 5, "Support", "Check for new releases or open the lightweight ripping-job logs.", "Check Updates", updates, "Open Logs", logs);
             var closeRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, AutoSize = true, Padding = new Padding(0, 12, 0, 0) };
             closeRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); closeRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); closeRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -1325,6 +1349,27 @@ namespace DiscRipper
                 MediaKind kind; if (MainFormMediaNames.TryParse(Convert.ToString(item), out kind)) EnabledKinds.Add(kind);
             }
             DialogResult = DialogResult.OK; Close();
+        }
+    }
+
+    internal sealed class VideoSelectionSettingsForm : Form
+    {
+        private readonly NumericUpDown minimumMinutes = new NumericUpDown { Minimum = 0, Maximum = 120, DecimalPlaces = 1, Increment = 0.5M, Dock = DockStyle.Fill };
+        public int MinimumSeconds { get { return (int)(minimumMinutes.Value * 60M); } }
+        public VideoSelectionSettingsForm(int minimumSeconds)
+        {
+            Text = "Media Nexus ARM - Video Titles"; StartPosition = FormStartPosition.CenterParent; Font = new Font("Segoe UI", 9F);
+            FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false; MinimizeBox = false; ClientSize = new Size(500, 190);
+            var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(16), ColumnCount = 2, RowCount = 3 };
+            root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 62)); root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 38));
+            root.Controls.Add(new Label { Text = "Hide video titles shorter than", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, 0, 0);
+            minimumMinutes.Value = Math.Max(minimumMinutes.Minimum, Math.Min(minimumMinutes.Maximum, minimumSeconds / 60M));
+            root.Controls.Add(minimumMinutes, 1, 0);
+            root.Controls.Add(new Label { Text = "Minutes (0 shows every title reported by MakeMKV). This affects Movie and TV Series selection windows.", AutoSize = true, MaximumSize = new Size(455, 0), Padding = new Padding(0, 10, 0, 0) }, 0, 1); root.SetColumnSpan(root.GetControlFromPosition(0, 1), 2);
+            var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Padding = new Padding(0, 14, 0, 0) };
+            var save = new Button { Text = "Save", DialogResult = DialogResult.OK, AutoSize = true }; var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true };
+            buttons.Controls.Add(save); buttons.Controls.Add(cancel); root.Controls.Add(buttons, 0, 2); root.SetColumnSpan(buttons, 2);
+            Controls.Add(root); AcceptButton = save; CancelButton = cancel; ThemeSettings.Apply(this);
         }
     }
 
@@ -1683,6 +1728,7 @@ namespace DiscRipper
         private const string SoundsValue = "CompletionSounds";
         private const string MediaTypesValue = "EnabledMediaTypes";
         private const string AudioFormatValue = "AudioFormat";
+        private const string VideoMinimumSecondsValue = "VideoMinimumSeconds";
         public static string LoadOutputRoot()
         {
             try
@@ -1705,6 +1751,23 @@ namespace DiscRipper
             catch { return AudioFormat.ALAC; }
         }
         public static void SaveAudioFormat(AudioFormat value) { using (var key = Registry.CurrentUser.CreateSubKey(RegistryPath)) key.SetValue(AudioFormatValue, value.ToString(), RegistryValueKind.String); }
+        public static int LoadVideoMinimumSeconds()
+        {
+            try
+            {
+                using (var key = Registry.CurrentUser.OpenSubKey(RegistryPath))
+                {
+                    int value = key == null ? DiscAnalyzer.DefaultManualSelectionMinimumSeconds : Convert.ToInt32(key.GetValue(VideoMinimumSecondsValue, DiscAnalyzer.DefaultManualSelectionMinimumSeconds));
+                    return Math.Max(0, Math.Min(7200, value));
+                }
+            }
+            catch { return DiscAnalyzer.DefaultManualSelectionMinimumSeconds; }
+        }
+        public static void SaveVideoMinimumSeconds(int value)
+        {
+            value = Math.Max(0, Math.Min(7200, value));
+            using (var key = Registry.CurrentUser.CreateSubKey(RegistryPath)) key.SetValue(VideoMinimumSecondsValue, value, RegistryValueKind.DWord);
+        }
         public static HashSet<MediaKind> LoadEnabledMediaTypes()
         {
             var defaults = new HashSet<MediaKind> { MediaKind.Movie, MediaKind.TVSeries, MediaKind.Music, MediaKind.Book };

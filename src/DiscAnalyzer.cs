@@ -7,7 +7,7 @@ namespace DiscRipper
 {
     internal static class DiscAnalyzer
     {
-        public const int ManualSelectionMinimumSeconds = 300;
+        public const int DefaultManualSelectionMinimumSeconds = 300;
 
         public static DiscAnalysis AnalyzeAudio(DiscToc toc)
         {
@@ -91,9 +91,9 @@ namespace DiscRipper
             return analysis;
         }
 
-        public static List<VideoTitleInfo> RankMovieCandidates(IEnumerable<VideoTitleInfo> source)
+        public static List<VideoTitleInfo> RankMovieCandidates(IEnumerable<VideoTitleInfo> source, int minimumSeconds)
         {
-            List<VideoTitleInfo> candidates = source.Where(t => t.DurationSeconds >= ManualSelectionMinimumSeconds).ToList();
+            List<VideoTitleInfo> candidates = source.Where(t => t.DurationSeconds >= minimumSeconds).ToList();
             MarkCompositeTitles(candidates);
             foreach (VideoTitleInfo title in candidates)
             {
