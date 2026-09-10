@@ -25,7 +25,8 @@ namespace DiscRipper
             string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             string dataRoot = Path.Combine(local, "Media Nexus", "ARM");
             MigrateLegacyDataRoot(Path.Combine(local, "Media Nexus ARM", "Data"), dataRoot);
-            root = Path.Combine(dataRoot, "Tools", "freac");
+            root = Path.Combine(local, "Media Nexus", "Shared", "freac");
+            MigrateManagedToolRoot(Path.Combine(dataRoot, "Tools", "freac"), root);
         }
         public string ExecutablePath { get { return Path.Combine(root, "current", "freaccmd.exe"); } }
         public string InstalledVersion { get { string file = Path.Combine(root, "current", "version.txt"); return File.Exists(file) ? File.ReadAllText(file).Trim() : "Not installed"; } }
@@ -121,7 +122,7 @@ namespace DiscRipper
             return Task.Run(() =>
             {
                 ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
-                var request = (HttpWebRequest)WebRequest.Create(url); request.UserAgent = "Media-Nexus-ARM/0.7.26"; request.AllowAutoRedirect = true;
+                var request = (HttpWebRequest)WebRequest.Create(url); request.UserAgent = "Media-Nexus-ARM/0.7.27"; request.AllowAutoRedirect = true;
                 using (token.Register(() => request.Abort())) using (var response = request.GetResponse()) using (Stream input = response.GetResponseStream()) using (FileStream output = File.Create(target)) input.CopyTo(output);
             }, token);
         }
@@ -149,6 +150,22 @@ namespace DiscRipper
                 else { CopyDirectory(legacyRoot, dataRoot); Directory.Delete(legacyRoot, true); }
                 string legacyParent = Path.GetDirectoryName(legacyRoot);
                 if (Directory.Exists(legacyParent) && !Directory.EnumerateFileSystemEntries(legacyParent).Any()) Directory.Delete(legacyParent);
+            }
+            catch { }
+        }
+        private static void MigrateManagedToolRoot(string legacyRoot, string sharedRoot)
+        {
+            try
+            {
+                if (!Directory.Exists(legacyRoot)) return;
+                Directory.CreateDirectory(Path.GetDirectoryName(sharedRoot));
+                if (!Directory.Exists(sharedRoot)) Directory.Move(legacyRoot, sharedRoot);
+                else if (!File.Exists(Path.Combine(sharedRoot, "current", "freaccmd.exe"))) CopyDirectory(legacyRoot, sharedRoot);
+
+                if (!File.Exists(Path.Combine(sharedRoot, "current", "freaccmd.exe"))) return;
+                if (Directory.Exists(legacyRoot)) Directory.Delete(legacyRoot, true);
+                string legacyTools = Path.GetDirectoryName(legacyRoot);
+                if (Directory.Exists(legacyTools) && !Directory.EnumerateFileSystemEntries(legacyTools).Any()) Directory.Delete(legacyTools);
             }
             catch { }
         }

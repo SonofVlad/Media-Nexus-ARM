@@ -10,6 +10,6 @@ Media Nexus ARM embeds the unmodified `TagLibSharp.dll` from the official TagLib
 
 ## fre:ac 1.1.7
 
-fre:ac is not embedded in the Media Nexus ARM executable. When audio ripping is first used, Media Nexus ARM downloads the official Windows x64 portable package from the fre:ac GitHub release, verifies its SHA-256 checksum, and installs it into the current user's application-data directory.
+fre:ac is not embedded in the Media Nexus ARM executable. When audio ripping is first used, Media Nexus ARM downloads the official Windows x64 portable package from the fre:ac GitHub release, verifies its SHA-256 checksum, and installs it under `%LOCALAPPDATA%\Media Nexus\Shared\freac` for reuse by Media Nexus applications.
 
 Project, source, and license information: https://github.com/enzo1982/freac
