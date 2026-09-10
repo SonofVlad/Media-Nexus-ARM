@@ -142,7 +142,12 @@ namespace DiscRipper
 
             pollTimer.Interval = 3000;
             pollTimer.Tick += PollTimerOnTick;
-            Shown += (s, e) => { pollTimer.Start(); PollAll(); WarmMakeMkvMap(); };
+            Shown += async (s, e) =>
+            {
+                pollTimer.Start(); PollAll(); WarmMakeMkvMap();
+                await Task.Delay(1200);
+                if (!closing && !IsDisposed) await CheckForUpdatesAsync(null, true);
+            };
             ThemeSettings.Apply(this);
             zoomWheelFilter = new ZoomWheelMessageFilter(ChangeZoomByWheel);
             Application.AddMessageFilter(zoomWheelFilter);
@@ -256,6 +261,11 @@ namespace DiscRipper
         private void ShowDiagnostics(object sender, EventArgs e) { using (var dialog = new DiagnosticsForm(outputRoot, makeMkv, freac, rows.Values.ToList())) dialog.ShowDialog(DialogOwner(sender)); }
         private async void CheckForUpdates(object sender, EventArgs e)
         {
+            await CheckForUpdatesAsync(sender, false);
+        }
+
+        private async Task CheckForUpdatesAsync(object sender, bool startup)
+        {
             Button button = sender as Button;
             if (button != null) button.Enabled = false;
             try
@@ -264,7 +274,7 @@ namespace DiscRipper
                 Version current = Assembly.GetExecutingAssembly().GetName().Version;
                 if (latest.Version <= current)
                 {
-                    MessageBox.Show(DialogOwner(sender), "You are running the latest version (v" + current.ToString(3) + ").", "Media Nexus ARM - Updates", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    if (!startup) MessageBox.Show(DialogOwner(sender), "You are running the latest version (v" + current.ToString(3) + ").", "Media Nexus ARM - Updates", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     return;
                 }
                 if (rows.Values.Any(row => row.Busy))
@@ -307,7 +317,7 @@ namespace DiscRipper
             }
             catch (Exception ex)
             {
-                MessageBox.Show(DialogOwner(sender), "Could not check for updates.\n\n" + ex.Message, "Media Nexus ARM - Updates", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                if (!startup) MessageBox.Show(DialogOwner(sender), "Could not check for updates.\n\n" + ex.Message, "Media Nexus ARM - Updates", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
             finally { if (button != null && !button.IsDisposed) { button.Text = "Check Updates"; button.Enabled = true; } }
         }

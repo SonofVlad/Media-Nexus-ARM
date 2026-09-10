@@ -27,7 +27,7 @@ Media Nexus ARM is a Windows automatic ripping machine for movies, TV series, mu
 - Includes configurable completion behavior, sounds, Light/Dark themes, layout controls, resolution presets, and 5% Ctrl+wheel zoom.
 - Provides 30-day job logs and log-backed History; failed video output folders are removed so media destinations contain completed rips only.
 - Treats MakeMKV read/save errors as failures even when MakeMKV also prints `Copy complete`.
-- Checks GitHub for updates from Settings, verifies the downloaded EXE, and can install it by automatically restarting the program.
+- Checks GitHub quietly at startup and from Settings, prompts only when a newer release is available, verifies the downloaded EXE, and can install it by automatically restarting the program.
 - Keeps color-coded completion results visible per drive and shows a dismissible latest-event banner.
 
 ## Requirements
