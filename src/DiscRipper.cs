@@ -1569,8 +1569,6 @@ namespace DiscRipper
             lines.Add("Media Nexus ARM: " + Assembly.GetExecutingAssembly().GetName().Version);
             lines.Add("MakeMKV: " + (File.Exists(makeMkv) ? FileVersion(makeMkv) + "  (" + makeMkv + ")" : "Not found"));
             lines.Add("fre:ac: " + freac.InstalledVersion);
-            string ffmpeg = SharedToolPaths.FindFfmpeg();
-            lines.Add("Shared FFmpeg: " + (ffmpeg != null ? FileVersion(ffmpeg) + "  (" + ffmpeg + ")" : "Not found in " + SharedToolPaths.SharedRoot));
             lines.Add("Audio format: " + AppSettings.LoadAudioFormat());
             lines.Add("Output: " + outputRoot);
             lines.Add("Output status: " + (AppSettings.CheckOutput(outputRoot) ?? "Writable"));
